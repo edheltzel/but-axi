@@ -37,7 +37,10 @@ It is built for agents that drive version control through a shell.
 You need GitButler with its `but` CLI, Git, and Node.js 22 or newer.
 
 ```sh
-npm install -g github:edheltzel/but-axi
+git clone https://github.com/edheltzel/but-axi.git
+cd but-axi
+npm install             # installs dependencies and builds dist/
+npm link                # puts `but-axi` on your PATH
 but-axi                 # home view for the current directory
 but-axi setup hooks     # optional: dashboard at the start of every agent session
 ```
@@ -68,11 +71,17 @@ git --version
 
 **2. Install but-axi.**
 
+Open a terminal in the folder where you keep code, and run these four commands one at a time:
+
 ```sh
-npm install -g github:edheltzel/but-axi
+git clone https://github.com/edheltzel/but-axi.git
+cd but-axi
+npm install
+npm link
 ```
 
-This downloads but-axi from GitHub, builds it, and puts the `but-axi` command on your computer.
+The first command downloads but-axi from GitHub. `npm install` gets what it needs and builds it. `npm link` puts the `but-axi` command on your computer.
+Keep the `but-axi` folder. The command runs from it.
 To confirm it worked, run:
 
 ```sh
@@ -132,18 +141,12 @@ but-axi setup hooks --uninstall
 npm uninstall -g but-axi
 ```
 
-## Other Ways to Install
+## Install Notes
 
-### From source
-
-```sh
-git clone https://github.com/edheltzel/but-axi.git
-cd but-axi
-npm install        # also builds dist/ through the prepare script
-npm link           # puts but-axi on your PATH
-```
-
-`npm link` is the same as `ln -s "$PWD/dist/bin/but-axi.js" "$(npm prefix -g)/bin/but-axi"`.
+but-axi is not published to npm. Install it from a clone as shown above. `npm install` runs the `prepare` script, which builds `dist/`.
+`npm link` creates the same symlink as `ln -s "$PWD/dist/bin/but-axi.js" "$(npm prefix -g)/bin/but-axi"`.
+To update, run `git pull` and then `npm install` in the clone.
+npm 12 turns off git dependencies by default (`allow-git=none`), so `npm install -g github:edheltzel/but-axi` does not work unless you change that setting.
 
 ### Session hook
 
