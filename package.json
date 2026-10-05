@@ -1,0 +1,33 @@
+{
+  "name": "but-axi",
+  "version": "0.1.0",
+  "description": "AXI-compliant GitButler `but` CLI wrapper — TOON output, counts, truncation, help[] next steps, combined mutations, session hooks",
+  "type": "module",
+  "bin": {
+    "but-axi": "./dist/bin/but-axi.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/bin/but-axi.js",
+    "prepare": "npm run build",
+    "test": "npm run build && vitest run"
+  },
+  "keywords": ["gitbutler", "but", "axi", "toon", "agent", "cli"],
+  "author": "Ed Heltzel",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@toon-format/toon": "^4.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  }
+}
