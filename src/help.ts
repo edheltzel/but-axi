@@ -11,7 +11,7 @@ commands[12]:
   push [<branch>] [--dry-run]  Push branch(es); returns pushed refs + state
   undo | redo                  Undo/redo last operation; returns new state
   oplog [list|snapshot|restore]  Operation history
-  setup hooks [--uninstall|--status]  Install SessionStart dashboard hook (Claude Code, Codex, Cursor)
+  setup hooks [--uninstall|--status]  Install session-start dashboard (Claude Code, Codex, Cursor, omp)
   hook session-start           Hook entrypoint (quiet outside GitButler workspaces)
   version                      Print version
 global flags: -C <path>, --fields a,b, --full, --query <text> (-q), --help (-h)
@@ -59,15 +59,16 @@ Re-applies the last undone operation. Returns the new workspace state.
        but-axi oplog restore <id>
 Lists recent operations (default 10). restore returns the new workspace state.
 `,
-  setup: `usage: but-axi setup hooks [--agents claude,codex,cursor] [--dry-run]
+  setup: `usage: but-axi setup hooks [--agents claude,codex,cursor,omp] [--dry-run]
        but-axi setup hooks --status
        but-axi setup hooks --uninstall [--agents ...]
 Installs a SessionStart hook that prints the home view at the start of each agent session
 (silent outside GitButler workspaces). Merges into existing config, backs up each file it edits
 (<file>.bak-but-axi-<timestamp>), and is idempotent. Targets: ~/.claude/settings.json,
-~/.codex/hooks.json, ~/.cursor/hooks.json.
+~/.codex/hooks.json, ~/.cursor/hooks.json, and the omp extension ~/.omp/agent/extensions/but-axi.ts
+(backups of it go to ~/.omp/agent/but-axi.ts.bak-but-axi-<timestamp>).
 `,
-  hook: `usage: but-axi hook session-start [--agent claude|codex|cursor]
+  hook: `usage: but-axi hook session-start [--agent claude|codex|cursor|omp]
 Hook entrypoint. Prints the compact home view for the session directory; prints nothing (exit 0)
 outside a GitButler workspace or on any error. --agent cursor wraps output as {"additional_context": ...}.
 `,

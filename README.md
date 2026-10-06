@@ -116,9 +116,9 @@ If the folder does not use GitButler yet, the home view says so. To turn GitButl
 but-axi setup hooks
 ```
 
-From now on, each new Claude Code, Codex, or Cursor session that starts inside a GitButler project gets the home view up front, so the agent knows the state of the project from the start. In other folders the hook prints nothing.
+From now on, each new Claude Code, Codex, Cursor, or omp session that starts inside a GitButler project gets the home view up front, so the agent knows the state of the project from the start. In other folders the hook prints nothing.
 Before it changes a settings file, but-axi saves a backup copy next to it. The output lists those backups.
-Restart your agent apps so they load the hook. Codex may ask you to trust the new hook the first time.
+Restart your agent apps so they load the hook. Codex may ask you to trust the new hook the first time. In omp you can also type `/but-axi` to see the dashboard at any time.
 
 To check which apps have the hook:
 
@@ -151,7 +151,7 @@ npm 12 turns off git dependencies by default (`allow-git=none`), so `npm install
 ### Session hook
 
 ```sh
-but-axi setup hooks                      # install for every agent found (claude, codex, cursor)
+but-axi setup hooks                      # install for every agent found (claude, codex, cursor, omp)
 but-axi setup hooks --agents claude      # only some agents
 but-axi setup hooks --dry-run            # show what would change
 but-axi setup hooks --status             # installed or not, per agent
@@ -163,6 +163,7 @@ but-axi setup hooks --uninstall          # remove the managed entries
 | Claude Code | `~/.claude/settings.json` | `hooks.SessionStart` group, plain text output |
 | Codex | `~/.codex/hooks.json` | `hooks.SessionStart` group, plain text output (needs `[features] hooks = true` in `~/.codex/config.toml`) |
 | Cursor | `~/.cursor/hooks.json` | `hooks.sessionStart` entry, output `{"additional_context": "..."}` |
+| omp | `~/.omp/agent/extensions/but-axi.ts` | Auto-discovered TypeScript extension (no config edit), see below |
 
 Setup merges into the existing file and never replaces it. Each file it edits is first copied to `<file>.bak-but-axi-<timestamp>`.
 Running setup again changes nothing (`already installed (no change)`), and a stale entry is repaired in place.
@@ -170,7 +171,14 @@ Install and uninstall find the entry by the marker `# but-axi hook session-start
 The hook command uses absolute paths to `node` and the script, so it works when an app starts with a short `PATH`.
 The hook reads the session directory from the hook's stdin JSON (`cwd`, or Cursor's `workspace_roots`) and prints nothing outside a GitButler workspace or on any error.
 
-Not covered: jcode (its `session_start` setting is a single command that is already in use) and omp (it uses TypeScript extensions and has no shell hook config).
+omp has no shell hook config, so but-axi writes a small extension instead, rendered from [`omp/but-axi.ts`](omp/but-axi.ts) with the absolute `node` and script paths baked in.
+On `session_start` it runs `but-axi hook session-start --agent omp` in the session directory (5 second timeout, then SIGTERM and SIGKILL; output capped at 64 KB).
+Before the first agent turn it appends the dashboard to the system prompt. Outside a GitButler workspace, on an error, or on a timeout it adds nothing.
+It also registers a `/but-axi` command that shows the current dashboard.
+The file carries the marker `but-axi-omp-extension`. Setup only overwrites or removes a `but-axi.ts` that has the marker, and refuses to touch one that does not.
+Before it updates or removes the file, setup copies it to `~/.omp/agent/but-axi.ts.bak-but-axi-<timestamp>`. The copy goes outside `extensions/` so omp does not load it.
+
+Not covered: jcode (its `session_start` setting is a single command that is already in use).
 Cursor note: Cursor has a [known issue](https://forum.cursor.com/t/sessionstart-hook-additional-context-is-never-injected-into-agents-initial-system-context/158452) where `sessionStart` `additional_context` can be dropped.
 
 ## Usage

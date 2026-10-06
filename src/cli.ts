@@ -188,12 +188,13 @@ function setup(pos: string[], uninstall: boolean, status: boolean, agentsFlag: s
     ? ["Run `but-axi setup hooks` to reinstall"]
     : ["Start a new agent session inside a GitButler repo to see the dashboard", "Run `but-axi setup hooks --status`", "Run `but-axi setup hooks --uninstall` to remove"];
   if (!uninstall && rows.some((r) => r.agent === "codex" && r.action === "installed")) help.push("Codex may ask you to trust the new hook on its next start");
+  if (!uninstall && rows.some((r) => r.agent === "omp" && r.action === "installed")) help.push("omp loads extensions at startup: restart omp, then `/but-axi` shows the dashboard");
   return ok({
     data: {
       setup: uninstall ? "hooks uninstall" : "hooks install",
       count: `${changed} ${dryRun ? "would change" : "changed"}; ${rows.length - changed} unchanged`,
       hooks: rows,
-      not_supported: "jcode (single session_start slot already in use); omp (TypeScript extensions only)",
+      not_supported: "jcode (single session_start slot already in use)",
     },
     help,
   });
