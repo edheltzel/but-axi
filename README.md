@@ -112,7 +112,7 @@ The hook reads the session directory from the hook's stdin JSON (`cwd`, or Curso
 omp has no shell hook config, so but-axi writes a small extension instead, rendered from [`omp/but-axi.ts`](omp/but-axi.ts) with the absolute `node` and script paths baked in.
 On `session_start` it runs `but-axi hook session-start --agent omp` in the session directory (5 second timeout, then SIGTERM and SIGKILL; output capped at 64 KB).
 Before the first agent turn it appends the dashboard to the system prompt. Outside a GitButler workspace, on an error, or on a timeout it adds nothing.
-It also registers a `/but-axi` command that shows the current dashboard.
+The omp extension does not register a HIL slash; agents discover but-axi via the skill, and the extension only injects the session-start dashboard.
 The file carries the marker `but-axi-omp-extension`. Setup only overwrites or removes a `but-axi.ts` that has the marker, and refuses to touch one that does not.
 Before it updates or removes the file, setup copies it to `~/.omp/agent/but-axi.ts.bak-but-axi-<timestamp>`. The copy goes outside `extensions/` so omp does not load it.
 
