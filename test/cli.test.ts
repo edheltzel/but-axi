@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { chmodSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it, beforeAll } from "vitest";
@@ -97,6 +97,84 @@ describe("exit codes and structured errors (fake but)", () => {
     expect(r.code).toBe(2);
     expect(r.out).toContain("code: UNKNOWN_FIELD");
   });
+  it("bare -V matches --version and does not load command handlers", () => {
+    const pkg = JSON.parse(readFileSync(resolve(__dirname, "../package.json"), "utf8")).version as string;
+    for (const flag of ["-V", "-v", "--version"]) {
+      const r = axi([flag]);
+      expect(r.code, flag).toBe(0);
+      expect(r.out, flag).toBe(`${pkg}\n`);
+      expect(r.err, flag).toBe("");
+    }
+    const src = readFileSync(resolve(__dirname, "../bin/but-axi.ts"), "utf8");
+    expect(src).toContain('await import("../src/cli.js")');
+    expect(src).not.toMatch(/import \{[^}]*\bmain\b[^}]*\} from "\.\.\/src\/cli\.js"/);
+  });
+  it("usage mistakes exit 2 instead of running or exiting 1", () => {
+    const cases: [string[], string][] = [
+      [["branch", "list", "--above", "feat"], "unexpected flag --above"],
+      [["branch", "list", "--below", "feat"], "unexpected flag --below"],
+      [["branch", "show", "--above", "feat", "name"], "unexpected flag --above"],
+      [["branch", "show", "name", "extra"], "unexpected argument extra"],
+      [["branch", "show"], "MISSING_ARGUMENT"],
+      [["branch", "new"], "MISSING_ARGUMENT"],
+      [["oplog", "list", "extra"], "unexpected argument extra"],
+      [["oplog", "list", "-m", "hi"], "unexpected flag --message"],
+      [["oplog", "snapshot", "--limit", "5"], "unexpected flag --limit"],
+      [["oplog", "restore", "--limit", "3", "abc"], "unexpected flag --limit"],
+      [["oplog", "restore", "-m", "hi", "abc"], "unexpected flag --message"],
+      [["oplog", "--limit", "nope"], "INVALID_VALUE"],
+      [["oplog", "restore"], "MISSING_ARGUMENT"],
+      [["version", "extra"], "unexpected argument extra"],
+      [["version", "-V"], ""],
+      [["show"], "MISSING_ARGUMENT"],
+      [["commit"], "MISSING_MESSAGE"],
+      [["hook", "session-start", "--agent", "nope"], "unknown agent nope"],
+    ];
+    for (const [args, needle] of cases) {
+      const r = axi(args);
+      const label = args.join(" ");
+      expect(r.code, label).toBe(needle ? 2 : 0);
+      if (needle) expect(r.out, label).toContain(needle);
+      expect(r.out, label).not.toContain("BUT_NOT_FOUND");
+    }
+  });
+  it("branch list --query filters names; branch new --above is passed through", () => {
+    const listed = fakeBut(`echo '{"appliedStacks":[{"heads":[{"name":"feat"},{"name":"other"}]}],"branches":[]}'`);
+    const q = axi(["branch", "list", "--query", "feat"], { env: { BUT_AXI_BUT: listed } });
+    expect(q.code).toBe(0);
+    expect(q.out).toContain("query: feat");
+    expect(q.out).toContain("feat,true");
+    expect(q.out).not.toContain("other");
+    const created = fakeBut(`
+case "$*" in
+  *status*) echo '{"uncommittedChanges":[],"stacks":[]}' ;;
+  *) echo '{}' ;;
+esac`);
+    const n = axi(["branch", "new", "feat", "--above", "main"], { env: { BUT_AXI_BUT: created } });
+    expect(n.code).toBe(0);
+    expect(n.out).toContain("branch: created feat above main");
+  });
+  it("home --query filters applied branches", () => {
+    const but = fakeBut(`echo '{"uncommittedChanges":[],"stacks":[{"branches":[{"name":"feat","commits":[],"branchStatus":"nothingToPush"},{"name":"other","commits":[],"branchStatus":"nothingToPush"}]}]}'`);
+    const r = axi(["--query", "feat"], { env: { BUT_AXI_BUT: but } });
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("query: feat");
+    expect(r.out).toContain("matched: 1 of 2 branches");
+    expect(r.out).toContain("feat,0,pushed");
+    expect(r.out).not.toContain("other");
+  });
+  it("oplog snapshot returns the snapshot id and a compact workspace summary", () => {
+    const but = fakeBut(`
+case "$*" in
+  *snapshot*) echo '{"snapshot_id":"abcdef0123456789"}' ;;
+  *) echo '{"uncommittedChanges":[],"stacks":[{"branches":[{"name":"feat","commits":[],"branchStatus":"completelyUnpushed"}]}]}' ;;
+esac`);
+    const r = axi(["oplog", "snapshot", "-m", "checkpoint"], { env: { BUT_AXI_BUT: but } });
+    expect(r.code).toBe(0);
+    expect(r.out).toMatch(/snapshot: created abcdef01/);
+    expect(r.out).toContain("count: 1 stack; 1 branch; 0 commits; 0 uncommitted; 0 conflicts");
+    expect(r.out).toContain("feat,0,unpushed");
+  });
 });
 
 /* ------------------------------------------------------------ real but, throwaway repo */
@@ -144,7 +222,7 @@ describe.skipIf(!haveBut)("real GitButler workspace in /tmp", () => {
     expect(dq.out).toContain("matched: 0 of 1 hunk");
 
     const noMsg = axi(["commit", "-b", "feat"], { cwd: repo });
-    expect(noMsg.code).toBe(1);
+    expect(noMsg.code).toBe(2);
     expect(noMsg.out).toContain("code: MISSING_MESSAGE");
 
     const c = axi(["commit", "-b", "feat", "-m", "add a"], { cwd: repo });
@@ -184,6 +262,7 @@ describe.skipIf(!haveBut)("real GitButler workspace in /tmp", () => {
 
     const snap = axi(["oplog", "snapshot", "-m", "checkpoint"], { cwd: repo });
     expect(snap.out).toMatch(/snapshot: created [0-9a-f]{8}/);
+    expect(snap.out).toContain("count:");
 
     const st = axi(["status", "--fields", "sha"], { cwd: repo });
     expect(st.out).toMatch(/commits\[2\]\{id,branch,subject,sha\}:/);

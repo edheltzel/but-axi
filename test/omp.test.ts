@@ -42,12 +42,11 @@ describe("omp extension template", () => {
     const r = await handlers.before_agent_start({ systemPrompt: ["base"] }, { cwd: ws });
     expect(r.systemPrompt[0]).toBe("base");
     expect(r.systemPrompt[1]).toContain("GitButler workspace");
+    expect(r.systemPrompt[1]).toContain("count: 1 stack");
     expect(r.systemPrompt[1]).toContain("hook session-start --agent omp");
     const s = await handlers.before_agent_start({ systemPrompt: "base" }, { cwd: ws });
     expect(s.systemPrompt).toMatch(/^base\n\nGitButler workspace/);
-    const notes: string[] = [];
-    await commands["but-axi"].handler("", { cwd: ws, ui: { notify: (m: string) => notes.push(m) } });
-    expect(notes[0]).toContain("count: 1 stack");
+    expect(commands["but-axi"]).toBeUndefined();
   });
 
   it("stays quiet outside a workspace and on errors", async () => {
