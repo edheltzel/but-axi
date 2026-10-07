@@ -5,3 +5,5 @@ dist/
 .env
 .env.*
 coverage/
+# Homebrew/npm global link artifact (source entrypoint is bin/but-axi.ts)
+bin/but-axi
