@@ -18,7 +18,6 @@ interface Ctx {
 
 interface Api {
   on(event: string, handler: (event: any, ctx: Ctx) => unknown): void;
-  registerCommand?(name: string, spec: { description: string; handler: (args: string, ctx: Ctx) => unknown }): void;
 }
 
 /** Run `but-axi hook session-start --agent omp`; resolves "" on any error, non-zero exit, or timeout. */
@@ -101,15 +100,4 @@ export default function butAxiOmpExtension(pi: Api): void {
     return { systemPrompt: appendToSystemPrompt(event?.systemPrompt, block) };
   });
 
-  try {
-    pi.registerCommand?.("but-axi", {
-      description: "Show the but-axi GitButler dashboard for this directory",
-      handler: async (_args, ctx) => {
-        const text = await refresh(ctx);
-        try {
-          ctx.ui?.notify?.(text || "but-axi: not a GitButler workspace", "info");
-        } catch {}
-      },
-    });
-  } catch {}
 }
