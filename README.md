@@ -34,119 +34,57 @@ It is built for agents that drive version control through a shell.
 
 ## Quick Start
 
-You need GitButler with its `but` CLI, Git, and Node.js 22 or newer.
+Install the but-axi skill in the [Agent Skills](https://agentskills.io) format with [`npx skills`](https://github.com/vercel-labs/skills):
 
 ```sh
-git clone https://github.com/edheltzel/but-axi.git
-cd but-axi
-npm install             # installs dependencies and builds dist/
-npm link                # puts `but-axi` on your PATH
-but-axi                 # home view for the current directory
-but-axi setup hooks     # optional: dashboard at the start of every agent session
+npx skills add edheltzel/but-axi --skill but-axi -g
 ```
 
-Then tell your agent:
+That is the entire setup - no npm install needed.
+The skill is a minimal discovery stub that directs your agent to the always-current `npx -y but-axi` dashboard and help output instead of duplicating command guidance.
+You still need [GitButler](https://gitbutler.com/downloads) with its [`but`](https://docs.gitbutler.com/cli-overview) CLI, Git, and Node.js 22+.
+
+The skill is not a user-facing slash command (`user-invocable: false`).
+Just ask for anything that touches GitButler version control - status, diffs, commits, branches, push, undo/redo - and the agent loads the skill on its own when it recognizes the task.
+
+`-g` installs the skill for all projects (`~/.agents/skills/` / `~/.claude/skills/`, for example); drop it to install for the current project only.
+
+## Other Ways to Install
+
+The skill is the recommended path, but it is not the only one.
+
+### Zero setup
+
+but-axi is an AXI, so any capable agent can run the CLI directly with nothing installed at all.
+Just tell your agent:
 
 ```
-Use `but-axi` for GitButler version control. Run `but-axi` first, then follow its help[] hints.
+Execute `npx -y but-axi` to get GitButler tools.
 ```
 
-## Getting Started
+### Session hook
 
-This part is for people. It walks you through setting up but-axi for the agents you work with, one step at a time.
-
-**1. Install what but-axi needs.**
-
-- **GitButler.** Download the app from [gitbutler.com](https://gitbutler.com/downloads). Then turn on its command-line tool, `but`. The [GitButler CLI guide](https://docs.gitbutler.com/cli-overview) shows how.
-- **Node.js 22 or newer.** Get it from [nodejs.org](https://nodejs.org/).
-- **Git.** Most Macs already have it. If not, get it from [git-scm.com](https://git-scm.com/downloads).
-
-Check that the tools are there. Each command should print a version number:
+Want ambient GitButler context - the current workspace dashboard - fed into every agent session instead of loading on demand?
+Install the CLI globally and opt into the hook:
 
 ```sh
-but --version
-node --version
-git --version
+npm install -g but-axi
+but-axi setup hooks
 ```
 
-**2. Install but-axi.**
+This installs a `SessionStart` hook for **Claude Code**, **Codex**, **Cursor**, and **omp** that surfaces the current GitButler workspace state at the start of each session.
+**Restart your agent session after running this** so the new hook takes effect.
 
-Open a terminal in the folder where you keep code, and run these four commands one at a time:
+### Clone (development)
 
 ```sh
 git clone https://github.com/edheltzel/but-axi.git
 cd but-axi
 npm install
 npm link
-```
-
-The first command downloads but-axi from GitHub. `npm install` gets what it needs and builds it. `npm link` puts the `but-axi` command on your computer.
-Keep the `but-axi` folder. The command runs from it.
-To confirm it worked, run:
-
-```sh
-but-axi --version
-```
-
-You should see a version number such as `0.1.0`.
-
-**3. Try it in a project.**
-
-Open a terminal in a project that already uses GitButler and run:
-
-```sh
 but-axi
-```
-
-This is the home view. It is a short summary of where the project stands:
-
-- `bin:` is where but-axi is installed.
-- `description:` is one sentence about what but-axi does.
-- `workspace:` is the project folder.
-- `count:` gives the totals: stacks, branches, commits, files you have not committed yet, and conflicts.
-- `upstream:` tells you whether the main branch has new work you have not pulled.
-- `branches` lists each branch with its number of commits and whether it is pushed.
-- `help` lists the commands that make sense to run next.
-
-If the folder does not use GitButler yet, the home view says so. To turn GitButler on for a Git project, run `but setup` in that folder.
-
-**4. Give your agents the dashboard (optional).**
-
-```sh
 but-axi setup hooks
 ```
-
-From now on, each new Claude Code, Codex, Cursor, or omp session that starts inside a GitButler project gets the home view up front, so the agent knows the state of the project from the start. In other folders the hook prints nothing.
-Before it changes a settings file, but-axi saves a backup copy next to it. The output lists those backups.
-Restart your agent apps so they load the hook. Codex may ask you to trust the new hook the first time. In omp you can also type `/but-axi` to see the dashboard at any time.
-
-To check which apps have the hook:
-
-```sh
-but-axi setup hooks --status
-```
-
-**5. Undo the hook setup (any time).**
-
-```sh
-but-axi setup hooks --uninstall
-```
-
-This removes only the but-axi entries and leaves your other settings alone.
-
-**6. Uninstall but-axi (if you want to).**
-
-```sh
-but-axi setup hooks --uninstall
-npm uninstall -g but-axi
-```
-
-## Install Notes
-
-but-axi is not published to npm. Install it from a clone as shown above. `npm install` runs the `prepare` script, which builds `dist/`.
-`npm link` creates the same symlink as `ln -s "$PWD/dist/bin/but-axi.js" "$(npm prefix -g)/bin/but-axi"`.
-To update, run `git pull` and then `npm install` in the clone.
-npm 12 turns off git dependencies by default (`allow-git=none`), so `npm install -g github:edheltzel/but-axi` does not work unless you change that setting.
 
 ### Session hook
 
@@ -327,7 +265,7 @@ CLI IDs from `but-axi status` and `but-axi diff` are the same IDs `but` uses, so
 
 ## Agent skill
 
-The `git-butler-axi` Agent Skill (`~/.agents/skills/git-butler-axi/SKILL.md` on the author's machine) teaches agents when to use but-axi, how to read its output, and when to fall back to raw `but`.
+The `gitbutler-axi` Agent Skill (`~/.agents/skills/gitbutler-axi/SKILL.md` on the author's machine) teaches agents when to use but-axi, how to read its output, and when to fall back to raw `but`.
 The hook gives an agent context at the start of every session. The skill gives it the full guide when it needs one.
 
 ## Development

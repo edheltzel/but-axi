@@ -1,7 +1,7 @@
 {
   "name": "but-axi",
   "version": "0.1.0",
-  "description": "AXI-compliant GitButler `but` CLI wrapper — TOON output, counts, truncation, help[] next steps, combined mutations, session hooks",
+  "description": "AXI-compliant GitButler `but` CLI wrapper \u2014 TOON output, counts, truncation, help[] next steps, combined mutations, session hooks",
   "type": "module",
   "bin": {
     "but-axi": "./dist/bin/but-axi.js"
@@ -9,15 +9,24 @@
   "files": [
     "dist",
     "omp",
-    "README.md",
-    "LICENSE"
+    "skills/but-axi",
+    "LICENSE",
+    "README.md"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json && chmod +x dist/bin/but-axi.js",
     "prepare": "npm run build",
-    "test": "npm run build && vitest run"
+    "test": "npm run build && vitest run",
+    "prepublishOnly": "npm run build"
   },
-  "keywords": ["gitbutler", "but", "axi", "toon", "agent", "cli"],
+  "keywords": [
+    "gitbutler",
+    "but",
+    "axi",
+    "toon",
+    "agent",
+    "cli"
+  ],
   "author": "Ed Heltzel",
   "license": "MIT",
   "engines": {
@@ -30,5 +39,12 @@
     "@types/node": "^26.6.4",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/edheltzel/but-axi.git"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
