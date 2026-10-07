@@ -11,7 +11,7 @@ export class AxiError extends Error {
   }
 }
 
-/** Unknown command, unknown flag, unknown field, missing flag value: exit 2. */
+/** Usage: unknown command/flag/field, missing or invalid argument, extra argument. Exit 2. */
 export class UsageError extends AxiError {
   constructor(message: string, help: string[] = [], code = "USAGE") {
     super(message, code, help, 2);

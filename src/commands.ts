@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
-import { bool, fieldsOf, maxPositionals, parseArgs, str, strs, type FlagSpec, type Parsed } from "./args.js";
+import { bool, fieldsOf, maxPositionals, parseArgs, rejectFlags, str, strs, type FlagSpec, type Parsed } from "./args.js";
 import { butJson, runBut, butError } from "./but.js";
-import { AxiError } from "./errors.js";
+import { AxiError, UsageError } from "./errors.js";
 import {
   ago,
   body,
@@ -98,11 +98,15 @@ export function homeView(ctx: Ctx, bin: string): Output {
     throw e;
   }
   workspaceBlock(ws, data);
-  const rows = data.branches;
-  if (Array.isArray(rows) && rows.length > HOME_BRANCHES) {
-    data.branches = rows.slice(0, HOME_BRANCHES);
-    data.branches_note = `(showing ${HOME_BRANCHES} of ${rows.length} — run \`but-axi status\` for all)`;
+  const all = Array.isArray(data.branches) ? (data.branches as Row[]) : [];
+  const rows = filterRows(all, ctx.query);
+  if (ctx.query) {
+    data.query = ctx.query;
+    data.matched = `${rows.length} of ${all.length} ${all.length === 1 ? "branch" : "branches"}`;
   }
+  const shown = rows.length > HOME_BRANCHES ? rows.slice(0, HOME_BRANCHES) : rows;
+  putList(data, "branches", shown, ctx.query ? "0 matching branches" : "0 applied branches");
+  if (shown.length < rows.length) data.branches_note = `(showing ${HOME_BRANCHES} of ${rows.length} — run \`but-axi status\` for all)`;
   return { data, help: homeHelp(ws, ctx) };
 }
 
@@ -236,7 +240,7 @@ export function showView(ctx: Ctx, target?: string): Output {
     maxPositionals(ctx.p, 1, "show");
     target = ctx.p.positionals[0];
   }
-  if (!target) throw new AxiError("show needs a commit id, change id, or branch name", "MISSING_ARGUMENT", [run(ctx, "show <commit-id|branch>"), run(ctx, "status", "to list IDs")]);
+  if (!target) throw new UsageError("show needs a commit id, change id, or branch name", [run(ctx, "show <commit-id|branch>"), run(ctx, "status", "to list IDs")], "MISSING_ARGUMENT");
   validateFields(ctx.fields, [SHOW_FILES, SHOW_COMMITS], "show");
   const raw = butJson<RawShowCommit | RawShowBranch>(["show", target], ctx.cwd);
   if ("commit" in raw) {
@@ -291,6 +295,7 @@ interface RawBranchList {
 const BRANCH_LIST: ListSchema = { name: "branches", defaults: ["name", "applied", "updated"], extras: ["author", "mergesCleanly", "local", "reviews"] };
 
 export function branchList(ctx: Ctx): Output {
+  rejectFlags(ctx.p, ["above", "below"], "branch list", "Filter with --query <text>. --above and --below apply to `branch new` only");
   validateFields(ctx.fields, [BRANCH_LIST], "branch");
   const raw = butJson<RawBranchList>(["branch", "list"], ctx.cwd);
   const all: Row[] = [];
@@ -307,7 +312,7 @@ export function branchList(ctx: Ctx): Output {
 export function branchNew(ctx: Ctx): Output {
   maxPositionals(ctx.p, 1, "branch new");
   const name = ctx.p.positionals[0];
-  if (!name) throw new AxiError("branch new needs a <name>", "MISSING_ARGUMENT", [run(ctx, "branch new <name>")]);
+  if (!name) throw new UsageError("branch new needs a <name>", [run(ctx, "branch new <name>")], "MISSING_ARGUMENT");
   const above = str(ctx.p, "above");
   const below = str(ctx.p, "below");
   const args = ["branch", "new", name, ...(above ? ["--above", above] : []), ...(below ? ["--below", below] : [])];
@@ -329,7 +334,7 @@ export function commit(ctx: Ctx): Output {
   const branch = str(ctx.p, "branch");
   const changes = ctx.p.positionals;
   if (messages.length === 0) {
-    throw new AxiError("commit needs -m <message> (but-axi never opens an editor)", "MISSING_MESSAGE", [run(ctx, `commit${branch ? ` -b ${branch}` : " -b <branch>"} -m "<message>"`)]);
+    throw new UsageError("commit needs -m <message> (but-axi never opens an editor)", [run(ctx, `commit${branch ? ` -b ${branch}` : " -b <branch>"} -m "<message>"`)], "MISSING_MESSAGE");
   }
   const before = loadWorkspace(ctx.cwd);
   if (changes.length === 0 && before.uncommitted.length === 0) {
@@ -425,10 +430,12 @@ interface RawOp { id: string; createdAt?: number; details?: { operation?: string
 const OPS: ListSchema = { name: "ops", defaults: ["id", "operation", "when"], extras: ["title", "body", "sha"] };
 
 export function oplogList(ctx: Ctx): Output {
+  rejectFlags(ctx.p, ["message"], "oplog list", "-m applies to `oplog snapshot` only");
+  maxPositionals(ctx.p, 0, "oplog list");
   validateFields(ctx.fields, [OPS], "oplog");
   const limitRaw = str(ctx.p, "limit");
   const limit = limitRaw ? Number(limitRaw) : LIMITS.oplog;
-  if (!Number.isInteger(limit) || limit < 1) throw new AxiError(`--limit must be a positive integer, got "${limitRaw}"`, "INVALID_VALUE", [run(ctx, "oplog --limit 20")]);
+  if (!Number.isInteger(limit) || limit < 1) throw new UsageError(`--limit must be a positive integer, got "${limitRaw}"`, [run(ctx, "oplog --limit 20")], "INVALID_VALUE");
   const raw = butJson<RawOp[]>(["oplog", "list"], ctx.cwd);
   const all = (Array.isArray(raw) ? raw : []).map((o) => ({
     id: o.id.slice(0, 8),
@@ -447,17 +454,21 @@ export function oplogList(ctx: Ctx): Output {
 }
 
 export function oplogSnapshot(ctx: Ctx): Output {
+  rejectFlags(ctx.p, ["limit"], "oplog snapshot", "--limit applies to `oplog list` only");
   maxPositionals(ctx.p, 0, "oplog snapshot");
   const msg = str(ctx.p, "message");
   const res = butJson<Record<string, unknown>>(["oplog", "snapshot", ...(msg ? ["-m", msg] : [])], ctx.cwd);
   const id = String(res.snapshot_id ?? res.snapshotId ?? res.id ?? "");
-  return { data: { snapshot: id ? `created ${id.slice(0, 8)}` : "created", message: msg ?? "" }, help: [run(ctx, `oplog restore ${id ? id.slice(0, 8) : "<id>"}`), run(ctx, "oplog")] };
+  const data: Row = { snapshot: id ? `created ${id.slice(0, 8)}` : "created", message: msg ?? "" };
+  workspaceBlock(loadWorkspace(ctx.cwd), data);
+  return { data, help: [run(ctx, `oplog restore ${id ? id.slice(0, 8) : "<id>"}`), run(ctx, "oplog")] };
 }
 
 export function oplogRestore(ctx: Ctx): Output {
+  rejectFlags(ctx.p, ["limit", "message"], "oplog restore", "--limit applies to `oplog list`; -m applies to `oplog snapshot`");
   maxPositionals(ctx.p, 1, "oplog restore");
   const id = ctx.p.positionals[0];
-  if (!id) throw new AxiError("oplog restore needs an <id>", "MISSING_ARGUMENT", [run(ctx, "oplog", "to list ids"), run(ctx, "oplog restore <id>")]);
+  if (!id) throw new UsageError("oplog restore needs an <id>", [run(ctx, "oplog", "to list ids"), run(ctx, "oplog restore <id>")], "MISSING_ARGUMENT");
   butJson(["oplog", "restore", id], ctx.cwd);
   const ws = loadWorkspace(ctx.cwd);
   const data: Row = { restored: id };

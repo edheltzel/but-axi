@@ -12,7 +12,7 @@
 GitButler CLI for agents, designed with [AXI](https://axi.md) (Agent eXperience Interface).
 
 `but-axi` wraps the official GitButler [`but`](https://docs.gitbutler.com/cli-overview) CLI. It runs `but ... --json` underneath and returns token-efficient [TOON](https://github.com/toon-format/toon) output with counts up front, explicit empty states, truncated diffs, structured errors, and `help[]` next-step hints.
-Mutations (commit, branch new, push, undo, redo, oplog restore) return their result and the updated workspace state in one call.
+Mutations (commit, branch new, push, undo, redo, oplog snapshot, oplog restore) return their result and a compact workspace summary in one call: workspace path, counts, upstream, and applied branches. That summary is not the full `status` payload (no file list, no commit list).
 It is built for agents that drive version control through a shell.
 
 ## AXI principles
@@ -26,7 +26,7 @@ It is built for agents that drive version control through a shell.
 | 3 | Content truncation | Patches over 3000 chars and commit bodies over 800 chars are cut, with a size hint and `--full` |
 | 4 | Pre-computed aggregates | A `count:` line first: stacks, branches, commits, uncommitted, conflicts |
 | 5 | Definitive empty states | `branches: 0 applied branches`, `hunks: 0 matching hunks`, `pushed 0 branches (already up to date)` |
-| 6 | Structured errors and exit codes | `error:`, `code:`, `help[]` on stdout. Exit 0 ok, 1 error, 2 unknown command, flag, or field. Never prompts. Idempotent commit, branch new, push |
+| 6 | Structured errors and exit codes | `error:`, `code:`, `help[]` on stdout. Exit 0 ok, 1 runtime error, 2 usage error. Never prompts. Idempotent commit, branch new, push |
 | 7 | Ambient context | `but-axi setup hooks` installs a SessionStart dashboard for Claude Code, Codex, and Cursor |
 | 8 | Content first | Bare `but-axi` shows live workspace state, not help text |
 | 9 | Contextual disclosure | Every output ends with `help[]` command templates. `-C <path>` is carried forward and runtime values stay placeholders like `<branch>` |
@@ -128,15 +128,16 @@ but-axi diff                             # all uncommitted hunks + truncated pat
 but-axi diff <id> --full                 # one file/commit/branch, complete patch
 but-axi diff --query login               # only hunks and patch lines that match
 but-axi show <commit-id|branch>          # commit details or branch commit list
-but-axi commit -b <branch> -m "<msg>"    # commit everything, return new state
+but-axi commit -b <branch> -m "<msg>"    # commit everything, return compact summary
 but-axi commit -m "<msg>" <id> <id>      # commit selected hunks/files
 but-axi branch                           # applied + unapplied branches
+but-axi branch list --query <text>       # filter that list; --above is only for branch new
 but-axi branch new <name>                # idempotent create
-but-axi push [<branch>] [--dry-run]      # push, return pushed refs + state
-but-axi undo | but-axi redo              # oplog undo/redo, return new state
+but-axi push [<branch>] [--dry-run]      # push, return pushed refs + summary
+but-axi undo | but-axi redo              # oplog undo/redo, return compact summary
 but-axi oplog [--limit 20]               # operation history
-but-axi oplog snapshot -m "<msg>"        # on-demand snapshot
-but-axi oplog restore <id>               # restore, return new state
+but-axi oplog snapshot -m "<msg>"        # snapshot id + compact summary
+but-axi oplog restore <id>               # restore, return compact summary
 but-axi -C ~/code/app status             # any command against another directory
 ```
 
@@ -157,7 +158,7 @@ help[4]:
   Run `but-axi -C /tmp/but-axi-demo/app --help` for all commands
 ```
 
-A commit returns the new commit and the updated state in one call:
+A commit returns the new commit and a compact workspace summary in one call:
 
 ```text
 $ but-axi -C /tmp/but-axi-demo/app commit -b feature/login -m "feat: add login helper"
@@ -211,11 +212,11 @@ patch_note: "(truncated, 24979 chars total — use --full to see complete diff)"
 | `commit` | `-m` (repeatable), `-b <branch>`, optional change IDs. Never opens an editor. With nothing to commit it prints `skipped` and exits 0 |
 | `branch [list\|new\|show]` | List, create (an existing branch is reported as `already exists (no change)`), show |
 | `push [<branch>]` | `--dry-run`, `--with-force`, `--no-verify`. Already pushed gives `pushed 0 branches` and exit 0 |
-| `undo`, `redo` | Oplog undo or redo plus the new state |
-| `oplog [list\|snapshot\|restore]` | `--limit <n>`, `-m <msg>`, `<id>` |
+| `undo`, `redo` | Oplog undo or redo plus the compact workspace summary |
+| `oplog [list\|snapshot\|restore]` | list: `--limit <n>`. snapshot: `-m <msg>`, returns the snapshot id and compact summary. restore: `<id>` and that summary. A flag from the wrong subcommand is a usage error |
 | `setup hooks` | `--status`, `--uninstall`, `--agents`, `--dry-run` |
-| `hook session-start` | Hook entrypoint (`--agent claude\|codex\|cursor`) |
-| `version` | Print the version |
+| `hook session-start` | Hook entrypoint (`--agent claude\|codex\|cursor\|omp`). Any other agent name is a usage error |
+| `version` | Print the version. Extra arguments are a usage error |
 
 ### Global flags
 
@@ -224,15 +225,15 @@ patch_note: "(truncated, 24979 chars total — use --full to see complete diff)"
 - `--full` turns off truncation and row caps.
 - `--query <text>` (`-q`) keeps only matching rows and patch lines, and reports `query:` and `matched: N of M`.
 - `--help` (`-h`) prints short help for any command.
-- `--version` (`-v`) prints the version.
+- `--version` (`-v`, `-V`) prints the version. A bare version flag does not load command handlers.
 
 ### Exit codes and errors
 
 | Exit | Meaning |
 | ---- | ------- |
 | 0 | Success, including no-op results such as `skipped` or `already exists` |
-| 1 | Runtime error from `but` or but-axi, such as not a workspace, unknown ID, or missing `-m` |
-| 2 | Unknown command, unknown flag, unknown `--fields` value, or extra argument |
+| 1 | Runtime error from `but` or but-axi, such as not a workspace, unknown ID, or a failed push |
+| 2 | Usage error: unknown command, flag, or `--fields` value; missing or invalid argument (including missing `-m` and a bad `--limit`); extra argument |
 
 Errors go to stdout in the same TOON shape. Debug output goes to stderr, and only when `BUT_AXI_DEBUG=1` is set.
 

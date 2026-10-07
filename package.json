@@ -1,6 +1,6 @@
 {
   "name": "but-axi",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "AXI-compliant GitButler `but` CLI wrapper \u2014 TOON output, counts, truncation, help[] next steps, combined mutations, session hooks",
   "type": "module",
   "bin": {
@@ -17,6 +17,7 @@
     "build": "tsc -p tsconfig.json && chmod +x dist/bin/but-axi.js",
     "prepare": "npm run build",
     "test": "npm run build && vitest run",
+    "skill:check": "vitest run test/skill.test.ts",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

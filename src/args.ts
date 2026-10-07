@@ -5,6 +5,8 @@ export type FlagType = "boolean" | "string" | "strings";
 export interface FlagDef {
   type: FlagType;
   short?: string;
+  /** Extra one-letter forms, without the dash. */
+  shorts?: string[];
   /** Extra long aliases, without the leading dashes. */
   aliases?: string[];
 }
@@ -37,6 +39,7 @@ export function parseArgs(argv: string[], spec: FlagSpec, cmd: string): Parsed {
     byLong.set(name, name);
     for (const a of def.aliases ?? []) byLong.set(a, name);
     if (def.short) byShort.set(def.short, name);
+    for (const s of def.shorts ?? []) byShort.set(s, name);
   }
   const flags: Parsed["flags"] = {};
   const positionals: string[] = [];
@@ -115,5 +118,15 @@ export function fieldsOf(p: Parsed): string[] {
 export function maxPositionals(p: Parsed, n: number, cmd: string): void {
   if (p.positionals.length > n) {
     throw new UsageError(`unexpected argument ${p.positionals[n]}`, [`Run \`but-axi ${cmd} --help\``], "UNEXPECTED_ARGUMENT");
+  }
+}
+
+/** Reject flags that belong to a sibling subcommand (fail loud instead of silently ignoring). */
+export function rejectFlags(p: Parsed, names: string[], cmd: string, hint?: string): void {
+  for (const name of names) {
+    if (p.flags[name] === undefined) continue;
+    const help = [`Run \`but-axi ${cmd} --help\``];
+    if (hint) help.push(hint);
+    throw new UsageError(`unexpected flag --${name}`, help, "UNEXPECTED_FLAG");
   }
 }

@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { bool, parseArgs, str, type FlagSpec } from "./args.js";
+import { resolve } from "node:path";
+import { bool, maxPositionals, parseArgs, rejectFlags, str, type FlagSpec } from "./args.js";
 import {
   branchList,
   branchNew,
@@ -21,7 +19,8 @@ import {
 import { AxiError, UsageError } from "./errors.js";
 import { plural, render, renderError, tildify, type Output } from "./format.js";
 import { COMMAND_HELP, TOP_HELP } from "./help.js";
-import { hookCwd, hookStatus, installHooks, parseAgents, readHookInput } from "./hooks.js";
+import { AGENTS, type Agent, hookCwd, hookStatus, installHooks, parseAgents, readHookInput } from "./hooks.js";
+import { isBareVersion, VERSION } from "./version.js";
 
 const RAW_BUT = new Set([
   "amend", "absorb", "squash", "move", "reword", "uncommit", "discard", "resolve", "apply", "unapply",
@@ -29,19 +28,7 @@ const RAW_BUT = new Set([
 ]);
 
 export function version(): string {
-  try {
-    const here = dirname(fileURLToPath(import.meta.url));
-    for (const p of [join(here, "..", "package.json"), join(here, "..", "..", "package.json")]) {
-      try {
-        return JSON.parse(readFileSync(p, "utf8")).version as string;
-      } catch {
-        /* try next */
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  return "0.0.0";
+  return VERSION;
 }
 
 const SPECS: Record<string, FlagSpec> = {
@@ -57,7 +44,7 @@ const SPECS: Record<string, FlagSpec> = {
   oplog: { limit: { type: "string", short: "n" }, message: { type: "string", short: "m" } },
   setup: { uninstall: { type: "boolean" }, status: { type: "boolean" }, agents: { type: "string" }, "dry-run": { type: "boolean" } },
   hook: { agent: { type: "string" } },
-  version: { version: { type: "boolean", short: "v" } },
+  version: { version: { type: "boolean", short: "v", shorts: ["V"] } },
 };
 
 /** Split argv into [command, rest], allowing global flags (e.g. -C <dir>) before the command. */
@@ -91,7 +78,7 @@ export interface RunResult {
 
 export async function main(argv: string[], bin = process.argv[1] ?? "but-axi"): Promise<RunResult> {
   try {
-    if (argv.length === 1 && (argv[0] === "--version" || argv[0] === "-v")) return { stdout: `${version()}\n`, exitCode: 0 };
+    if (isBareVersion(argv)) return { stdout: `${version()}\n`, exitCode: 0 };
     const { command, rest } = splitCommand(argv);
     if (command === undefined) {
       if (rest.includes("--help") || rest.includes("-h")) return { stdout: TOP_HELP, exitCode: 0 };
@@ -130,7 +117,9 @@ export async function main(argv: string[], bin = process.argv[1] ?? "but-axi"): 
           return ok(branchNew(ctx));
         }
         if (sub === "show") {
-          if (pos.length !== 2) throw new AxiError("branch show needs exactly one <name>", "MISSING_ARGUMENT", [run(ctx, "branch show <name>")]);
+          rejectFlags(ctx.p, ["above", "below"], "branch show", "--above and --below apply to `branch new` only");
+          if (pos.length < 2) throw new UsageError("branch show needs exactly one <name>", [run(ctx, "branch show <name>")], "MISSING_ARGUMENT");
+          if (pos.length > 2) throw new UsageError(`unexpected argument ${pos[2]}`, ["Run `but-axi branch --help`"], "UNEXPECTED_ARGUMENT");
           ctx.p.positionals = pos.slice(1);
           return ok(showView(ctx));
         }
@@ -154,6 +143,7 @@ export async function main(argv: string[], bin = process.argv[1] ?? "but-axi"): 
       case "hook":
         return await hook(pos, str(ctx.p, "agent"), resolve(bin));
       case "version":
+        maxPositionals(ctx.p, 0, "version");
         return { stdout: `${version()}\n`, exitCode: 0 };
     }
     throw new UsageError(`unknown command ${command}`, ["Run `but-axi --help`"], "UNKNOWN_COMMAND");
@@ -203,6 +193,9 @@ function setup(pos: string[], uninstall: boolean, status: boolean, agentsFlag: s
 async function hook(pos: string[], agent: string | undefined, bin: string): Promise<RunResult> {
   if (pos[0] !== "session-start" || pos.length > 1) {
     throw new UsageError(`unknown hook ${pos[0] ?? "(none)"}`, ["Run `but-axi hook session-start`"], "UNKNOWN_COMMAND");
+  }
+  if (agent !== undefined && !AGENTS.includes(agent as Agent)) {
+    throw new UsageError(`unknown agent ${agent}`, [`Supported agents: ${AGENTS.join(",")}`], "UNKNOWN_AGENT");
   }
   const empty = { stdout: agent === "cursor" ? "{}\n" : "", exitCode: 0 };
   try {
