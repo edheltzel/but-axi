@@ -24,7 +24,7 @@ import { isBareVersion, VERSION } from "./version.js";
 
 const RAW_BUT = new Set([
   "amend", "absorb", "squash", "move", "reword", "uncommit", "discard", "resolve", "apply", "unapply",
-  "pull", "pr", "land", "pick", "worktree", "teardown", "clean", "open", "gui", "tui", "config", "alias", "skill", "agent", "update", "completions",
+  "pull", "pr", "merge", "land", "pick", "split", "worktree", "init", "teardown", "clean", "open", "gui", "tui", "config", "alias", "skill", "agent", "update", "completions",
 ]);
 
 export function version(): string {
