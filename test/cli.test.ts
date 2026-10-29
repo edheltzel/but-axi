@@ -198,8 +198,8 @@ describe.skipIf(!haveBut)("real GitButler workspace in /tmp", () => {
     sh("git", ["-C", repo, "add", "."]);
     sh("git", ["-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"]);
     sh("git", ["-C", repo, "remote", "add", "origin", remote]);
-    sh("git", ["-C", repo, "push", "-q", "origin", "main"]);
-    sh("but", ["-C", repo, "setup"]);
+    sh("git", ["-C", repo, "push", "-q", "-u", "origin", "main"]);
+    sh("but", ["-C", repo, "config", "target", "main", "--push-remote", "origin"]);
   });
 
   it("home view shows workspace state and help", () => {

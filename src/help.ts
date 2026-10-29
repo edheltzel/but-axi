@@ -16,7 +16,7 @@ commands[12]:
   version                      Print version (-v, -V, --version)
 global flags: -C <path>, --fields a,b, --full, --query <text> (-q), --help (-h)
 exit codes: 0 ok, 1 runtime error, 2 usage (unknown command/flag/field, missing or invalid argument, extra argument)
-not wrapped (use raw \`but\`): amend absorb squash move reword uncommit discard resolve apply unapply pull pr land pick worktree setup teardown
+not wrapped (use raw \`but\`): amend absorb squash move reword uncommit discard resolve apply unapply pull pr merge pick split worktree init teardown
 `;
 
 export const COMMAND_HELP: Record<string, string> = {

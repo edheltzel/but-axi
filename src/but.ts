@@ -129,7 +129,7 @@ export function butError(r: ButResult, args: string[]): AxiError {
   if (/No GitButler project|No git repository|setup required/i.test(message) || code === "SETUP_REQUIRED") {
     code = "NOT_A_WORKSPACE";
     help.length = 0;
-    help.push("Run `but setup` in the repository to enable GitButler (raw but; not wrapped)");
+    help.push("Run `but init` to create a git repo (GitButler 0.23+ needs no `but setup`; raw but, not wrapped)");
     help.push("Or pass `-C <path>` to point at a GitButler workspace");
   } else {
     const label = ["branch", "oplog"].includes(args[0] ?? "") && args[1] && !args[1].startsWith("-") ? `${args[0]} ${args[1]}` : args[0];

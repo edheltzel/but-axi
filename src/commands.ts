@@ -92,7 +92,7 @@ export function homeView(ctx: Ctx, bin: string): Output {
       data.workspace = `none — ${tildify(ctx.cwd)} is not a GitButler workspace`;
       return {
         data,
-        help: ["Run `but setup` inside a git repo to enable GitButler (raw but)", run(ctx, "-C <path>", "to view another workspace"), run(ctx, "--help")],
+        help: ["Run `but init` to create a repo, or run but-axi inside any git repo (GitButler 0.23+ needs no setup)", run(ctx, "-C <path>", "to view another workspace"), run(ctx, "--help")],
       };
     }
     throw e;
