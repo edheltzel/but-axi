@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { butJson } from "./but.js";
 import { plural, putList, subject, tildify, type Row } from "./format.js";
 
-/* Raw shapes from `but status --json` (GitButler CLI 0.22.x). */
+/* Raw shapes from `but status --json` (GitButler CLI 0.23.x; shape unchanged from 0.22.x). */
 interface RawCommit {
   cliId?: string;
   changeId?: string;

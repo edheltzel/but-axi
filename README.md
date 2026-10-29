@@ -259,7 +259,7 @@ Fixed context (`-C <path>`) is carried forward. Values the agent has to choose s
 ## Fallback to raw `but`
 
 but-axi wraps the core loop: inspect, commit, branch, push, and undo.
-For everything else, use `but` directly: `amend`, `absorb`, `squash`, `move`, `reword`, `uncommit`, `discard`, `resolve`, `apply`, `unapply`, `pull`, `pr`, `land`, `pick`, `worktree`, `setup`, `teardown`.
+For everything else, use `but` directly: `amend`, `absorb`, `squash`, `move`, `reword`, `uncommit`, `discard`, `resolve`, `apply`, `unapply`, `pull`, `pr`, `merge`, `pick`, `split`, `worktree`, `init`, `teardown`.
 If you call one of these on but-axi, it exits 2 and tells you to use `but <command> --help`.
 CLI IDs from `but-axi status` and `but-axi diff` are the same IDs `but` uses, so you can pass them straight to `but`.
 
@@ -276,7 +276,7 @@ npm run build        # tsc -> dist/
 npm test             # build + vitest (unit tests + CLI exit-code tests + a real `but` flow in /tmp)
 ```
 
-The integration suite creates a throwaway repo and a bare remote under `/tmp`, runs `but setup`, then commits, pushes, and undoes there. It is skipped when `but` is not installed.
+The integration suite creates a throwaway repo and a bare remote under `/tmp`, then commits, pushes, and undoes there. It is skipped when `but` is not installed.
 
 ## License
 
