@@ -31,6 +31,11 @@ describe("exit codes and structured errors (fake but)", () => {
     expect(r.code).toBe(2);
     expect(r.out).toMatch(/^error: unknown command frobnicate\ncode: UNKNOWN_COMMAND\nhelp\[1\]:/);
   });
+  it("commands removed from but (open) are plain unknown commands", () => {
+    const r = axi(["open"]);
+    expect(r.code).toBe(2);
+    expect(r.out).not.toContain("raw `but open");
+  });
   it("raw-but command names point to raw but", () => {
     const r = axi(["squash"]);
     expect(r.code).toBe(2);
@@ -286,5 +291,117 @@ describe.skipIf(!haveBut)("real GitButler workspace in /tmp", () => {
     expect(h.code).toBe(0);
     expect(h.out).toContain("description:");
     expect(h.out).toContain("branches");
+  });
+});
+
+describe.skipIf(!haveBut)("real GitButler 0.23: hooks, worktrees, refused push", () => {
+  const sh = (cmd: string, args: string[], cwd?: string) => {
+    const r = spawnSync(cmd, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    if (r.status !== 0) throw new Error(`${cmd} ${args.join(" ")}: ${r.stderr}`);
+    return r.stdout;
+  };
+  const git = (cwd: string, ...a: string[]) => sh("git", ["-C", cwd, "-c", "user.name=t", "-c", "user.email=t@t", ...a]);
+
+  it("maps hook failures, lists worktrees, reports refused pushes", () => {
+    const base = mkdtempSync(join("/tmp", "but-axi-023-"));
+    const repo = join(base, "repo");
+    const remote = join(base, "remote.git");
+    sh("git", ["init", "-q", "--bare", remote]);
+    sh("git", ["init", "-q", "-b", "main", repo]);
+    writeFileSync(join(repo, "a.txt"), "base\n");
+    git(repo, "add", ".");
+    git(repo, "commit", "-qm", "init");
+    git(repo, "remote", "add", "origin", remote);
+    git(repo, "push", "-q", "-u", "origin", "main");
+    sh("but", ["-C", repo, "config", "target", "main", "--push-remote", "origin"]);
+
+    const hook = join(repo, ".git", "hooks", "pre-commit");
+    writeFileSync(hook, "#!/bin/sh\necho 'lint failed' >&2\nexit 1\n");
+    chmodSync(hook, 0o755);
+    writeFileSync(join(repo, "a.txt"), "mine\n");
+    const failed = axi(["commit", "-b", "feat", "-m", "edit a"], { cwd: repo });
+    expect(failed.code).toBe(1);
+    expect(failed.out).toContain("code: HOOK_FAILED");
+    expect(failed.out).toContain("lint failed");
+    expect(failed.out).toContain("commit --no-hooks");
+    expect(axi(["commit", "-n", "-b", "feat", "-m", "edit a", "-m", "- body starting with a dash"], { cwd: repo }).code).toBe(0);
+    expect(spawnSync("git", ["-C", repo, "log", "-1", "--format=%B", "feat"], { encoding: "utf8" }).stdout).toContain("- body starting with a dash");
+
+    const wt = `side-${base.slice(-6).toLowerCase()}`;
+    const made = JSON.parse(sh("but", ["-C", repo, "worktree", "new", wt, "--json"])) as { path: string };
+    try {
+      const st = axi(["status"], { cwd: repo });
+      expect(st.out).toContain("1 worktree");
+      expect(st.out).toMatch(new RegExp(`worktrees\\[1\\]\\{id,name,commits,uncommitted,behind\\}:\\n  \\S+,${wt},0,0,0`));
+    } finally {
+      spawnSync("but", ["-C", repo, "worktree", "remove", made.path], { encoding: "utf8" });
+    }
+
+    const other = join(base, "other");
+    sh("git", ["clone", "-q", "-b", "main", remote, other]);
+    writeFileSync(join(other, "a.txt"), "theirs\n");
+    git(other, "commit", "-qam", "theirs");
+    git(other, "push", "-q", "origin", "main");
+    spawnSync("but", ["-C", repo, "pull"], { encoding: "utf8" });
+    const dry = axi(["push", "--dry-run"], { cwd: repo });
+    expect(dry.code).toBe(1);
+    expect(dry.out).toContain("code: PUSH_REFUSED");
+    expect(dry.out).toMatch(/feat \(Cannot push branch 'feat'/);
+    expect(dry.out).toContain("but resolve conflicts");
+  });
+});
+
+const haveGrit = spawnSync("grit", ["--version"], { encoding: "utf8" }).status === 0;
+
+describe("history: log and blame (grit when installed, else git)", () => {
+  const git = (cwd: string, ...a: string[]) => {
+    const r = spawnSync("git", ["-C", cwd, "-c", "user.name=t", "-c", "user.email=t@t", ...a], { encoding: "utf8" });
+    if (r.status !== 0) throw new Error(r.stderr);
+  };
+  const repo = () => {
+    const dir = mkdtempSync(join(tmpdir(), "but-axi-hist-"));
+    git(dir, "init", "-q", "-b", "main");
+    writeFileSync(join(dir, "f.txt"), "a\nb\n");
+    git(dir, "add", ".");
+    git(dir, "commit", "-qm", "one");
+    writeFileSync(join(dir, "g.txt"), "g\n");
+    git(dir, "add", ".");
+    git(dir, "commit", "-qm", "two");
+    writeFileSync(join(dir, "f.txt"), "a\nB\nc\n");
+    return dir;
+  };
+  const engines = haveGrit ? [{}, { BUT_AXI_NO_GRIT: "1" }] : [{ BUT_AXI_NO_GRIT: "1" }];
+
+  it.each(engines)("log and blame agree across engines (%o)", (env) => {
+    const dir = repo();
+    const log = axi(["log", "-n", "1"], { cwd: dir, env });
+    expect(log.code).toBe(0);
+    expect(log.out).toContain(`engine: ${env.BUT_AXI_NO_GRIT ? "git" : "grit"}`);
+    expect(log.out).toMatch(/count: 1 commit \(more available — use --limit 2\)\ncommits\[1\]\{sha,subject,when\}:\n  "?[0-9a-f]{7}"?,two,/);
+    const scoped = axi(["log", "--path", "f.txt", "--fields", "author"], { cwd: dir, env });
+    expect(scoped.out).toMatch(/commits\[1\]\{sha,subject,when,author\}:\n  "?[0-9a-f]{7}"?,one,[^,]+,t/);
+    const b = axi(["blame", "f.txt"], { cwd: dir, env });
+    expect(b.code).toBe(0);
+    expect(b.out).toContain("count: 3 lines; 1 commit; 2 uncommitted");
+    expect(b.out).toMatch(/blame\[2\]\{lines,sha,author,summary\}:\n  "?1"?,"?[0-9a-f]{7}"?,t,one\n  2-3,uncommitted,"",""/);
+    const missing = axi(["blame", "nope.txt"], { cwd: dir, env });
+    expect(missing.code).toBe(1);
+    expect(missing.out).toContain("error:");
+  });
+
+  it("usage errors exit 2 before running any engine", () => {
+    expect(axi(["blame"]).code).toBe(2);
+    expect(axi(["blame", "f", "-L", "x"]).out).toContain("code: INVALID_VALUE");
+    expect(axi(["log", "--limit", "0"]).code).toBe(2);
+    expect(axi(["log", "a", "b"]).code).toBe(2);
+  });
+
+  it("never runs grit mutations: a fake grit only sees read-only verbs", () => {
+    const dir = repo();
+    const seen = join(dir, "seen.txt");
+    const fake = fakeBut(`echo "$1" >> ${seen}; echo '{"commits":[]}'`);
+    axi(["log"], { cwd: dir, env: { BUT_AXI_GRIT: fake } });
+    axi(["blame", "f.txt"], { cwd: dir, env: { BUT_AXI_GRIT: fake } });
+    expect(readFileSync(seen, "utf8").trim().split("\n")).toEqual(["log", "blame"]);
   });
 });

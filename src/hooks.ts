@@ -1,15 +1,15 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { AxiError } from "./errors.js";
 import { tildify, type Row } from "./format.js";
 import { ompInstalled, ompOps, ompPaths } from "./omp.js";
+import { opencodeInstalled, opencodeOps, opencodePaths } from "./opencode.js";
 
-export type Agent = "claude" | "codex" | "cursor" | "omp";
-export const AGENTS: Agent[] = ["claude", "codex", "cursor", "omp"];
-/** Stable symlink that survives Homebrew node upgrades. */
-export const STABLE_NODE = process.env.BUT_AXI_NODE ?? "/opt/homebrew/bin/node";
+export type Agent = "claude" | "codex" | "opencode" | "cursor" | "omp";
+export const AGENTS: Agent[] = ["claude", "codex", "opencode", "cursor", "omp"];
 export const MARKER = "but-axi hook session-start";
+const BIN = "but-axi";
 
 export interface AgentTarget {
   agent: Agent;
@@ -25,32 +25,36 @@ export function targets(home = homedir()): AgentTarget[] {
   ];
 }
 
-/** Absolute, PATH-independent hook command (GUI-launched agents often have a thin PATH). */
-export function hookCommand(agent: Agent, nodePath = process.execPath, script = process.argv[1] ?? ""): string {
-  const q = (s: string) => `'${s.replace(/'/g, "'\\''")}'`;
-  const { node, js } = runtimePaths(nodePath, script);
-  // The marker text must appear verbatim in the command so install/uninstall can find it.
-  return `${q(node)} ${q(js)} hook session-start --agent ${agent} # ${MARKER}`;
+/** Hook command: the PATH name when it resolves to this script (AXI §7), else absolute node + script paths. */
+export function hookCommand(agent: Agent, nodePath = process.execPath, script = process.argv[1] ?? "", pathEnv = process.env.PATH ?? ""): string {
+  return `${launcher(nodePath, script, pathEnv).map(shq).join(" ")} hook session-start --agent ${agent} # ${MARKER}`;
 }
 
-/** Stable absolute node + script paths for hook commands and the omp extension. */
-export function runtimePaths(nodePath = process.execPath, script = process.argv[1] ?? ""): { node: string; js: string } {
-  let node = nodePath;
-  let js = script;
-  if (existsSync(STABLE_NODE)) node = STABLE_NODE;
-  else if (/fnm_multishells|\/tmp\//.test(nodePath)) {
-    try {
-      node = realpathSync(nodePath);
-    } catch {
-      /* keep */
-    }
-  }
+function shq(s: string): string {
+  return /^[\w@%+=:,./-]+$/.test(s) ? s : `'${s.replace(/'/g, "'\\''")}'`;
+}
+
+/** argv prefix that runs this but-axi: ["but-axi"] when PATH resolves to it, else [node, script]. */
+export function launcher(nodePath = process.execPath, script = process.argv[1] ?? "", pathEnv = process.env.PATH ?? ""): string[] {
+  const self = real(script);
+  if (self && pathEnv.split(delimiter).some((dir) => dir && real(join(dir, BIN)) === self)) return [BIN];
+  const { node, js } = runtimePaths(nodePath, script, pathEnv);
+  return [node, js];
+}
+
+function real(p: string): string | undefined {
   try {
-    js = realpathSync(script);
+    return statSync(p).isFile() ? realpathSync(p) : undefined;
   } catch {
-    /* keep */
+    return undefined;
   }
-  return { node, js };
+}
+
+/** Stable absolute node + script paths: prefer a `node` on PATH that resolves to the running binary (survives version upgrades). */
+export function runtimePaths(nodePath = process.execPath, script = process.argv[1] ?? "", pathEnv = process.env.PATH ?? ""): { node: string; js: string } {
+  const self = real(nodePath) ?? nodePath;
+  const onPath = pathEnv.split(delimiter).map((dir) => dir && join(dir, "node")).find((p) => p && real(p) === self);
+  return { node: onPath || (/fnm_multishells|\/tmp\//.test(nodePath) ? self : nodePath), js: real(script) ?? script };
 }
 
 export function isManaged(cmd: unknown): boolean {
@@ -213,11 +217,15 @@ export function parseAgents(value: string | undefined): Agent[] | undefined {
 export function installHooks(opts: { agents?: Agent[]; home?: string; uninstall?: boolean; dryRun?: boolean; timeoutSec?: number } = {}): HookResult[] {
   const out: HookResult[] = [];
   const timeout = opts.timeoutSec ?? 10;
-  for (const t of [...targets(opts.home), ...ompTarget(opts.home)]) {
+  for (const t of [...targets(opts.home), ...pluginTargets(opts.home)]) {
     const explicit = opts.agents?.includes(t.agent) ?? false;
     if (opts.agents && !explicit) continue;
     if (!existsSync(t.dir) && !explicit) {
       out.push({ agent: t.agent, action: "skipped (not installed)", file: tildify(t.file), backup: "" });
+      continue;
+    }
+    if (t.agent === "opencode") {
+      out.push({ agent: "opencode", ...opencodeOps({ home: opts.home, uninstall: opts.uninstall, dryRun: opts.dryRun, argv: launcher() }) });
       continue;
     }
     if (t.agent === "omp") {
@@ -249,14 +257,18 @@ export function installHooks(opts: { agents?: Agent[]; home?: string; uninstall?
   return out;
 }
 
-function ompTarget(home = homedir()): AgentTarget[] {
-  const { file } = ompPaths(home);
-  return [{ agent: "omp", dir: join(home, ".omp"), file }];
+function pluginTargets(home = homedir()): AgentTarget[] {
+  const oc = opencodePaths(home);
+  return [
+    { agent: "opencode", dir: oc.root, file: oc.file },
+    { agent: "omp", dir: join(home, ".omp"), file: ompPaths(home).file },
+  ];
 }
 
 export function hookStatus(home = homedir()): Row[] {
-  return [...targets(home), ...ompTarget(home)].map((t) => {
+  return [...targets(home), ...pluginTargets(home)].map((t) => {
     if (!existsSync(t.dir)) return { agent: t.agent, installed: false, file: tildify(t.file), note: "agent not installed" };
+    if (t.agent === "opencode") return { agent: "opencode", installed: opencodeInstalled(home), file: tildify(t.file), note: "ok" };
     if (t.agent === "omp") return { agent: "omp", installed: ompInstalled(home), file: tildify(t.file), note: "ok" };
     let cur: Json = {};
     try {

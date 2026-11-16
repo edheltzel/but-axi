@@ -7,6 +7,8 @@ import {
   diffView,
   homeView,
   makeCtx,
+  blameView,
+  logView,
   oplogList,
   oplogRestore,
   oplogSnapshot,
@@ -24,7 +26,7 @@ import { isBareVersion, VERSION } from "./version.js";
 
 const RAW_BUT = new Set([
   "amend", "absorb", "squash", "move", "reword", "uncommit", "discard", "resolve", "apply", "unapply",
-  "pull", "pr", "merge", "land", "pick", "split", "worktree", "init", "teardown", "clean", "open", "gui", "tui", "config", "alias", "skill", "agent", "update", "completions",
+  "pull", "pr", "merge", "land", "pick", "split", "worktree", "init", "teardown", "clean", "gui", "tui", "config", "alias", "skill", "agent", "update", "completions",
 ]);
 
 export function version(): string {
@@ -36,12 +38,14 @@ const SPECS: Record<string, FlagSpec> = {
   status: {},
   diff: {},
   show: {},
-  commit: { message: { type: "strings", short: "m" }, branch: { type: "string", short: "b" } },
+  commit: { message: { type: "strings", short: "m" }, branch: { type: "string", short: "b" }, "no-hooks": { type: "boolean", short: "n", aliases: ["no-verify"] } },
   branch: { above: { type: "string", short: "A" }, below: { type: "string", short: "B" } },
   push: { "dry-run": { type: "boolean", short: "d" }, "with-force": { type: "boolean", short: "f" }, "no-verify": { type: "boolean" } },
   undo: {},
   redo: {},
   oplog: { limit: { type: "string", short: "n" }, message: { type: "string", short: "m" } },
+  log: { limit: { type: "string", short: "n" }, path: { type: "strings", short: "p" } },
+  blame: { lines: { type: "string", short: "L" }, rev: { type: "string" } },
   setup: { uninstall: { type: "boolean" }, status: { type: "boolean" }, agents: { type: "string" }, "dry-run": { type: "boolean" } },
   hook: { agent: { type: "string" } },
   version: { version: { type: "boolean", short: "v", shorts: ["V"] } },
@@ -138,6 +142,10 @@ export async function main(argv: string[], bin = process.argv[1] ?? "but-axi"): 
         if (sub === "restore") return ok(oplogRestore(ctx));
         throw new UsageError(`unknown oplog subcommand ${sub}`, ["Run `but-axi oplog --help`"], "UNKNOWN_COMMAND");
       }
+      case "log":
+        return ok(logView(ctx));
+      case "blame":
+        return ok(blameView(ctx));
       case "setup":
         return setup(ctx.p.positionals, bool(ctx.p, "uninstall"), bool(ctx.p, "status"), str(ctx.p, "agents"), bool(ctx.p, "dry-run"));
       case "hook":
@@ -178,6 +186,7 @@ function setup(pos: string[], uninstall: boolean, status: boolean, agentsFlag: s
     ? ["Run `but-axi setup hooks` to reinstall"]
     : ["Start a new agent session inside a GitButler repo to see the dashboard", "Run `but-axi setup hooks --status`", "Run `but-axi setup hooks --uninstall` to remove"];
   if (!uninstall && rows.some((r) => r.agent === "codex" && r.action === "installed")) help.push("Codex may ask you to trust the new hook on its next start");
+  if (!uninstall && rows.some((r) => r.agent === "opencode" && r.action === "installed")) help.push("OpenCode loads plugins at startup: restart OpenCode to see the dashboard");
   if (!uninstall && rows.some((r) => r.agent === "omp" && r.action === "installed")) help.push("omp loads extensions at startup: restart omp, then `/but-axi` shows the dashboard");
   return ok({
     data: {

@@ -24,10 +24,10 @@ It is built for agents that drive version control through a shell.
 | 1 | Token-efficient output | TOON tables such as `branches[2]{name,commits,state}:` instead of raw JSON |
 | 2 | Minimal default schemas | 3-4 fields per row. `--fields a,b` adds more |
 | 3 | Content truncation | Patches over 3000 chars and commit bodies over 800 chars are cut, with a size hint and `--full` |
-| 4 | Pre-computed aggregates | A `count:` line first: stacks, branches, commits, uncommitted, conflicts |
+| 4 | Pre-computed aggregates | A `count:` line first: stacks, branches, commits, uncommitted, conflicts, worktrees |
 | 5 | Definitive empty states | `branches: 0 applied branches`, `hunks: 0 matching hunks`, `pushed 0 branches (already up to date)` |
 | 6 | Structured errors and exit codes | `error:`, `code:`, `help[]` on stdout. Exit 0 ok, 1 runtime error, 2 usage error. Never prompts. Idempotent commit, branch new, push |
-| 7 | Ambient context | `but-axi setup hooks` installs a SessionStart dashboard for Claude Code, Codex, and Cursor |
+| 7 | Ambient context | `but-axi setup hooks` installs a SessionStart dashboard for Claude Code, Codex, OpenCode, Cursor, and omp |
 | 8 | Content first | Bare `but-axi` shows live workspace state, not help text |
 | 9 | Contextual disclosure | Every output ends with `help[]` command templates. `-C <path>` is carried forward and runtime values stay placeholders like `<branch>` |
 | 10 | Consistent help | `but-axi <command> --help` is short |
@@ -72,7 +72,7 @@ npm install -g but-axi
 but-axi setup hooks
 ```
 
-This installs a `SessionStart` hook for **Claude Code**, **Codex**, **Cursor**, and **omp** that surfaces the current GitButler workspace state at the start of each session.
+This installs a `SessionStart` hook for **Claude Code**, **Codex**, **OpenCode**, **Cursor**, and **omp** that surfaces the current GitButler workspace state at the start of each session.
 **Restart your agent session after running this** so the new hook takes effect.
 
 ### Clone (development)
@@ -89,7 +89,7 @@ but-axi setup hooks
 ### Session hook
 
 ```sh
-but-axi setup hooks                      # install for every agent found (claude, codex, cursor, omp)
+but-axi setup hooks                      # install for every agent found (claude, codex, opencode, cursor, omp)
 but-axi setup hooks --agents claude      # only some agents
 but-axi setup hooks --dry-run            # show what would change
 but-axi setup hooks --status             # installed or not, per agent
@@ -100,13 +100,14 @@ but-axi setup hooks --uninstall          # remove the managed entries
 | ----- | ----------- | ---- |
 | Claude Code | `~/.claude/settings.json` | `hooks.SessionStart` group, plain text output |
 | Codex | `~/.codex/hooks.json` | `hooks.SessionStart` group, plain text output (needs `[features] hooks = true` in `~/.codex/config.toml`) |
+| OpenCode | `~/.config/opencode/plugins/but-axi.js` | Managed plugin that adds the dashboard to the session's system context (OpenCode 1 and 2) |
 | Cursor | `~/.cursor/hooks.json` | `hooks.sessionStart` entry, output `{"additional_context": "..."}` |
 | omp | `~/.omp/agent/extensions/but-axi.ts` | Auto-discovered TypeScript extension (no config edit), see below |
 
 Setup merges into the existing file and never replaces it. Each file it edits is first copied to `<file>.bak-but-axi-<timestamp>`.
 Running setup again changes nothing (`already installed (no change)`), and a stale entry is repaired in place.
 Install and uninstall find the entry by the marker `# but-axi hook session-start` in the command.
-The hook command uses absolute paths to `node` and the script, so it works when an app starts with a short `PATH`.
+The hook command is plain `but-axi` when that name on `PATH` resolves to the running script. Otherwise it uses absolute paths to `node` (a `PATH` symlink such as Homebrew's, which survives upgrades, when one points at the running node) and the script. Rerun setup after moving or reinstalling to repair it.
 The hook reads the session directory from the hook's stdin JSON (`cwd`, or Cursor's `workspace_roots`) and prints nothing outside a GitButler workspace or on any error.
 
 omp has no shell hook config, so but-axi writes a small extension instead, rendered from [`omp/but-axi.ts`](omp/but-axi.ts) with the absolute `node` and script paths baked in.
@@ -114,6 +115,8 @@ On `session_start` it runs `but-axi hook session-start --agent omp` in the sessi
 Before the first agent turn it appends the dashboard to the system prompt. Outside a GitButler workspace, on an error, or on a timeout it adds nothing.
 The file carries the marker `but-axi-omp-extension`. Setup only overwrites or removes a `but-axi.ts` that has the marker, and refuses to touch one that does not.
 Before it updates or removes the file, setup copies it to `~/.omp/agent/but-axi.ts.bak-but-axi-<timestamp>`. The copy goes outside `extensions/` so omp does not load it.
+
+The OpenCode plugin follows the same rules: marker `but-axi managed opencode plugin`, foreign files are refused, backups go to `~/.config/opencode/` (outside `plugins/`). It runs the hook once per session (5 second timeout) and adds nothing outside a GitButler workspace.
 
 Not covered: jcode (its `session_start` setting is a single command that is already in use).
 Cursor note: Cursor has a [known issue](https://forum.cursor.com/t/sessionstart-hook-additional-context-is-never-injected-into-agents-initial-system-context/158452) where `sessionStart` `additional_context` can be dropped.
@@ -138,6 +141,8 @@ but-axi undo | but-axi redo              # oplog undo/redo, return compact summa
 but-axi oplog [--limit 20]               # operation history
 but-axi oplog snapshot -m "<msg>"        # snapshot id + compact summary
 but-axi oplog restore <id>               # restore, return compact summary
+but-axi log [-n 20] [--path <file>]      # commit history (grit when installed, else git)
+but-axi blame <file> -L 1,40             # line ranges grouped by commit
 but-axi -C ~/code/app status             # any command against another directory
 ```
 
@@ -209,13 +214,15 @@ patch_note: "(truncated, 24979 chars total — use --full to see complete diff)"
 | `status` | `uncommitted{id,path,change}`, `branches{id,name,commits,state}`, `commits{id,branch,subject}` |
 | `diff [<id>]` | `hunks{id,path,status,lines}` plus a truncated `patch` |
 | `show <id\|branch>` | Commit: id, sha, author, date, subject, body, files. Branch: commits, base, stackedOn |
-| `commit` | `-m` (repeatable), `-b <branch>`, optional change IDs. Never opens an editor. With nothing to commit it prints `skipped` and exits 0 |
+| `commit` | `-m` (repeatable), `-b <branch>`, `-n`/`--no-hooks`, optional change IDs. Never opens an editor. With nothing to commit it prints `skipped` and exits 0. A failing Git hook gives `HOOK_FAILED` |
 | `branch [list\|new\|show]` | List, create (an existing branch is reported as `already exists (no change)`), show |
-| `push [<branch>]` | `--dry-run`, `--with-force`, `--no-verify`. Already pushed gives `pushed 0 branches` and exit 0 |
+| `push [<branch>]` | `--dry-run`, `--with-force`, `--no-verify`. Already pushed gives `pushed 0 branches` and exit 0. A dry run that `but` would refuse (conflicted commits) exits 1 with `PUSH_REFUSED` and the reason per branch |
 | `undo`, `redo` | Oplog undo or redo plus the compact workspace summary |
 | `oplog [list\|snapshot\|restore]` | list: `--limit <n>`. snapshot: `-m <msg>`, returns the snapshot id and compact summary. restore: `<id>` and that summary. A flag from the wrong subcommand is a usage error |
+| `log [<rev>]` | `commits{sha,subject,when}` (+`author,date,refs`), `-n`/`--limit`, `--path` (repeatable). Read-only |
+| `blame <file>` | `blame{lines,sha,author,summary}` (+`date,when`), `-L a,b`, `--rev`. Uncommitted lines show `uncommitted`. Read-only |
 | `setup hooks` | `--status`, `--uninstall`, `--agents`, `--dry-run` |
-| `hook session-start` | Hook entrypoint (`--agent claude\|codex\|cursor\|omp`). Any other agent name is a usage error |
+| `hook session-start` | Hook entrypoint (`--agent claude\|codex\|opencode\|cursor\|omp`). Any other agent name is a usage error |
 | `version` | Print the version. Extra arguments are a usage error |
 
 ### Global flags
@@ -253,8 +260,13 @@ Fixed context (`-C <path>`) is carried forward. Values the agent has to choose s
 ### Environment
 
 - `BUT_AXI_BUT=/path/to/but` sets which `but` binary to use. By default but-axi looks on `PATH`, then in `/opt/homebrew/bin`, `/usr/local/bin`, and `~/.local/bin`.
-- `BUT_AXI_NODE=/path/to/node` sets the node binary written into hook commands. The default is `/opt/homebrew/bin/node` when it exists.
-- `BUT_AXI_DEBUG=1` writes the `but` invocations to stderr.
+- `BUT_AXI_GRIT=/path/to/grit` sets which `grit` to use for `log` and `blame`. By default but-axi looks on `PATH`, then in `~/.local/bin` (where the grit install script puts it). `BUT_AXI_NO_GRIT=1` forces plain `git`.
+- `BUT_AXI_DEBUG=1` writes the `but`, `grit`, and `git` invocations to stderr.
+
+## History with grit
+
+[grit](https://github.com/gitbutlerapp/grit) is GitButler's Git engine in Rust. Its `grit` CLI has `--json` output, which `log` and `blame` use when it is installed (`curl -fsSL https://grit-scm.com/install | sh`). Without it they fall back to `git` with the same output shape, and the `engine:` line says which one ran.
+but-axi only runs grit's read-only `log` and `blame`. grit's own `commit`, `switch`, and `reset` move `HEAD` without GitButler, so do not use them inside a GitButler workspace.
 
 ## Fallback to raw `but`
 
@@ -265,7 +277,7 @@ CLI IDs from `but-axi status` and `but-axi diff` are the same IDs `but` uses, so
 
 ## Agent skill
 
-The `gitbutler-axi` Agent Skill (`~/.agents/skills/gitbutler-axi/SKILL.md` on the author's machine) teaches agents when to use but-axi, how to read its output, and when to fall back to raw `but`.
+The `but-axi` Agent Skill ([`skills/but-axi/SKILL.md`](skills/but-axi/SKILL.md), generated by `src/skill.ts` and checked by `npm run skill:check`) tells agents when to use but-axi and sends them to `npx -y but-axi --help` for current usage.
 The hook gives an agent context at the start of every session. The skill gives it the full guide when it needs one.
 
 ## Development

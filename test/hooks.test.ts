@@ -1,8 +1,8 @@
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { hookCwd, installHooks, isManaged, MARKER, removeFlatHook, removeGroupHook, upsertFlatHook, upsertGroupHook } from "../src/hooks.js";
+import { hookCommand, hookCwd, installHooks, isManaged, MARKER, removeFlatHook, removeGroupHook, runtimePaths, upsertFlatHook, upsertGroupHook } from "../src/hooks.js";
 
 const CMD = `'/n' '/x/but-axi.js' hook session-start --agent claude # ${MARKER}`;
 
@@ -68,6 +68,46 @@ describe("installHooks on a temp home", () => {
     const after = JSON.parse(readFileSync(join(home, ".claude", "settings.json"), "utf8"));
     expect(after.hooks.SessionStart).toEqual([]);
     expect(after.theme).toBe("dark");
+  });
+});
+
+describe("portable hook command (AXI §7)", () => {
+  const setup = () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "but-axi-bin-")));
+    const script = join(root, "pkg", "but-axi.js");
+    mkdirSync(join(root, "pkg"));
+    writeFileSync(script, "");
+    const node = join(root, "Cellar", "node-26", "node");
+    mkdirSync(join(root, "Cellar", "node-26"), { recursive: true });
+    writeFileSync(node, "");
+    const bin = join(root, "bin");
+    mkdirSync(bin);
+    return { root, script, node, bin };
+  };
+  it("uses the PATH name when it resolves to this script", () => {
+    const { script, node, bin } = setup();
+    symlinkSync(script, join(bin, "but-axi"));
+    expect(hookCommand("claude", node, script, `/nope:${bin}`)).toBe(`but-axi hook session-start --agent claude # ${MARKER}`);
+  });
+  it("falls back to absolute paths when PATH has another or no but-axi", () => {
+    const { root, script, node, bin } = setup();
+    writeFileSync(join(root, "other.js"), "");
+    symlinkSync(join(root, "other.js"), join(bin, "but-axi"));
+    const cmd = hookCommand("codex", node, script, bin);
+    expect(cmd).toBe(`${node} ${script} hook session-start --agent codex # ${MARKER}`);
+    expect(cmd).not.toContain("/opt/homebrew");
+  });
+  it("prefers a node on PATH that resolves to the running node", () => {
+    const { script, node, bin } = setup();
+    symlinkSync(node, join(bin, "node"));
+    expect(runtimePaths(node, script, bin)).toEqual({ node: join(bin, "node"), js: script });
+    expect(runtimePaths(node, script, "").node).toBe(node);
+  });
+  it("quotes paths with spaces", () => {
+    const { root, script } = setup();
+    const spaced = join(root, "my node");
+    writeFileSync(spaced, "");
+    expect(hookCommand("cursor", spaced, script, "")).toContain(`'${spaced}'`);
   });
 });
 
