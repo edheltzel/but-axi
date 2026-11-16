@@ -104,7 +104,8 @@ export function cleanMessage(text: string): string {
     .map((l) => l.trim())
     .filter(Boolean)
     .filter((l) => !/^(Usage:|For more information)/.test(l));
-  const first = (lines[0] ?? "").replace(/^Error:\s*/i, "").replace(/^error:\s*/, "");
+  let first = (lines[0] ?? "").replace(/^Error:\s*/i, "").replace(/^error:\s*/, "");
+  if (first.endsWith(":") && lines[1]) first = `${first} ${lines.slice(1, 4).join(" | ")}`;
   return first;
 }
 

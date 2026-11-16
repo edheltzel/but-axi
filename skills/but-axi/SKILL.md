@@ -1,6 +1,6 @@
 ---
 name: but-axi
-description: "Drive GitButler version control through the but-axi CLI — workspace status, diffs, commits, branches, push, undo/redo, and oplog. Use whenever a task touches GitButler or would otherwise use git write commands in a GitButler repo: inspecting stacks and uncommitted changes, committing all or selected hunks/files, creating branches, pushing, undo/redo, or reading the oplog. Prefer but-axi over raw `but` for covered operations and over `git add/commit/push/checkout/merge/rebase`."
+description: "Drive GitButler version control through the but-axi CLI — workspace status, diffs, commits, branches, push, undo/redo, oplog, and read-only log/blame history. Use whenever a task touches GitButler or would otherwise use git write commands in a GitButler repo: inspecting stacks, worktrees and uncommitted changes, reading commit history or blame, committing all or selected hunks/files, creating branches, pushing, undo/redo, or reading the oplog. Prefer but-axi over raw `but` for covered operations and over `git add/commit/push/checkout/merge/rebase`."
 user-invocable: false
 author: Ed Heltzel (edheltzel)
 metadata:
@@ -13,7 +13,7 @@ metadata:
 
 Agent ergonomic wrapper around the GitButler `but` CLI. Prefer this over raw `but` and over git write commands for GitButler workspaces.
 
-Use but-axi whenever a task touches GitButler: workspace status, diffs, commits, branches, push, undo/redo, oplog, or anything that would otherwise use `git add` / `git commit` / `git push` / `git checkout` / `git merge` / `git rebase` in a GitButler repo.
+Use but-axi whenever a task touches GitButler: workspace status, diffs, commits, branches, push, undo/redo, oplog, log/blame history, or anything that would otherwise use `git add` / `git commit` / `git push` / `git checkout` / `git merge` / `git rebase` in a GitButler repo.
 
 ## Current guidance lives in the CLI
 

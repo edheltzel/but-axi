@@ -19,12 +19,13 @@ import {
   type Output,
   type Row,
 } from "./format.js";
-import { loadWorkspace, workspaceBlock, type Workspace } from "./workspace.js";
+import { historyBlame, historyLog } from "./grit.js";
+import { gitRoot, loadWorkspace, workspaceBlock, type Workspace } from "./workspace.js";
 
 export const DESCRIPTION = "Agent-ergonomic GitButler CLI that wraps `but --json` with compact TOON views and combined actions";
 
 export const HOME_BRANCHES = 12;
-export const LIMITS = { patch: 3000, body: 800, commits: 20, oplog: 10 };
+export const LIMITS = { patch: 3000, body: 800, commits: 20, oplog: 10, log: 20, blame: 60 };
 
 export interface Ctx {
   cwd: string;
@@ -123,7 +124,7 @@ export function statusView(ctx: Ctx, ws?: Workspace): Output {
   const unc = filterRows(ws.uncommitted, ctx.query);
   const br = filterRows(ws.branches, ctx.query);
   const cm = filterRows(ws.commits, ctx.query);
-  data.count = `${plural(ws.branches.length, "branch", "branches")}; ${plural(ws.commits.length, "commit")}; ${ws.uncommitted.length} uncommitted; ${plural(ws.conflicts, "conflict")}`;
+  data.count = `${plural(ws.branches.length, "branch", "branches")}; ${plural(ws.commits.length, "commit")}; ${ws.uncommitted.length} uncommitted; ${plural(ws.conflicts, "conflict")}${ws.worktrees.length ? `; ${plural(ws.worktrees.length, "worktree")}` : ""}`;
   data.upstream = ws.behind > 0 ? `behind ${ws.behind} (run \`but pull\` to update)` : "up to date";
   if (ctx.query) {
     data.query = ctx.query;
@@ -135,6 +136,8 @@ export function statusView(ctx: Ctx, ws?: Workspace): Output {
   const shown = ctx.full ? cm : cm.slice(0, LIMITS.commits);
   putList(data, "commits", project(shown, COMMITS, ctx.fields), none("commits on applied branches"));
   if (shown.length < cm.length) data.commits_note = `(showing ${shown.length} of ${cm.length} — use --full to see all commits)`;
+  const wt = filterRows(ws.worktrees, ctx.query);
+  if (wt.length) data.worktrees = wt;
   const help: string[] = [];
   if (ws.uncommitted.length) help.push(run(ctx, "diff <id>"), run(ctx, `commit -b <branch> -m "<message>" <id>...`));
   if (ws.commits.length) help.push(run(ctx, "show <commit-id>"));
@@ -342,11 +345,16 @@ export function commit(ctx: Ctx): Output {
     workspaceBlock(before, data);
     return { data, help: [run(ctx, "status"), run(ctx, "push <branch>")] };
   }
-  const args = ["commit", ...changes, ...messages.flatMap((m) => ["-m", m]), ...(branch ? ["-b", branch] : [])];
+  const noHooks = bool(ctx.p, "no-hooks");
+  const args = ["commit", ...changes, ...messages.map((m) => `--message=${m}`), ...(branch ? ["-b", branch] : []), ...(noHooks ? ["--no-hooks"] : [])];
   let res: { commitId?: string; changeId?: string };
   try {
     res = butJson(args, ctx.cwd);
   } catch (e) {
+    if (e instanceof AxiError && /hook failed/i.test(e.message)) {
+      const again = `commit --no-hooks -m "<message>"${branch ? ` -b ${branch}` : ""}${changes.length ? " " + changes.join(" ") : ""}`;
+      throw new AxiError(e.message, "HOOK_FAILED", ["Fix what the hook reported, then rerun the same commit", run(ctx, again, "to skip Git hooks")]);
+    }
     if (e instanceof AxiError && !branch && /branch|stack|--above|--below/i.test(e.message)) {
       e.help.unshift(run(ctx, `commit -b <branch> -m "<message>"${changes.length ? " " + changes.join(" ") : ""}`));
     }
@@ -375,7 +383,7 @@ export function commit(ctx: Ctx): Output {
 interface RawPushOne { remote?: string; branchShaUpdates?: [string, string, string][] }
 /** Single-branch push returns RawPushOne; push-all returns { pushed: RawPushOne[], failed: [...] }. */
 interface RawPush extends RawPushOne { pushed?: RawPushOne[]; failed?: unknown[] }
-interface RawPushDry { branches?: { branchName: string; unpushedCommits?: number; remote?: string; requiresForce?: boolean }[] }
+interface RawPushDry { branches?: { branchName: string; unpushedCommits?: number; remote?: string; requiresForce?: boolean; warning?: string }[] }
 
 export function push(ctx: Ctx): Output {
   maxPositionals(ctx.p, 1, "push");
@@ -384,8 +392,19 @@ export function push(ctx: Ctx): Output {
   const force = bool(ctx.p, "with-force");
   const extra = [...(force ? ["--with-force"] : []), ...(bool(ctx.p, "no-verify") ? ["--no-verify"] : [])];
   if (dry) {
-    const raw = butJson<RawPushDry>(["push", ...(branch ? [branch] : []), "--dry-run", ...extra], ctx.cwd);
-    const rows = (raw.branches ?? []).map((b) => ({ branch: b.branchName, commits: b.unpushedCommits ?? 0, remote: b.remote ?? "", force: !!b.requiresForce }));
+    const args = ["push", ...(branch ? [branch] : []), "--dry-run", ...extra];
+    const r = runBut(args, ctx.cwd);
+    const raw = r.json as RawPushDry | undefined;
+    if (r.code !== 0 && !Array.isArray(raw?.branches)) throw butError(r, args);
+    const rows: Row[] = (raw?.branches ?? []).map((b) => ({ branch: b.branchName, commits: b.unpushedCommits ?? 0, remote: b.remote ?? "", force: !!b.requiresForce, ...(b.warning ? { warning: b.warning } : {}) }));
+    if (r.code !== 0) {
+      const refused = rows.filter((x) => x.warning);
+      throw new AxiError(
+        `${butError(r, args).message}: ${refused.map((x) => `${x.branch} (${String(x.warning).split("\n")[0]})`).join("; ").slice(0, 600) || "see `but push --dry-run`"}`,
+        "PUSH_REFUSED",
+        [run(ctx, "status", "to find conflicted commits"), "Run `but resolve conflicts <commit-id>` to fix a conflicted commit (raw but)", ...(rows.length > refused.length ? [run(ctx, "push <branch>", "to push a clean branch alone")] : [])],
+      );
+    }
     const data: Row = { dry_run: true, count: `${plural(rows.length, "branch", "branches")} would be pushed` };
     putList(data, "would_push", rows, "0 branches — nothing to push");
     return { data, help: rows.length ? [run(ctx, `push ${branch ?? "<branch>"}`)] : [run(ctx, "status")] };
@@ -474,4 +493,70 @@ export function oplogRestore(ctx: Ctx): Output {
   const data: Row = { restored: id };
   workspaceBlock(ws, data);
   return { data, help: [run(ctx, "undo", "to undo the restore"), run(ctx, "status")] };
+}
+
+/* ---------------------------------------------------------------- history (grit or git, read-only) */
+
+const LOG: ListSchema = { name: "commits", defaults: ["sha", "subject", "when"], extras: ["author", "date", "refs"] };
+
+/** `log [<rev>] [--limit N] [--path <file>...]`: commit history via grit --json when installed, else git. */
+export function logView(ctx: Ctx): Output {
+  maxPositionals(ctx.p, 1, "log");
+  validateFields(ctx.fields, [LOG], "log");
+  const limitRaw = str(ctx.p, "limit");
+  const limit = limitRaw ? Number(limitRaw) : LIMITS.log;
+  if (!Number.isInteger(limit) || limit < 1) throw new UsageError(`--limit must be a positive integer, got "${limitRaw}"`, [run(ctx, "log --limit 50")], "INVALID_VALUE");
+  const rev = ctx.p.positionals[0];
+  rejectOptionLike(ctx, rev, "log");
+  const paths = strs(ctx.p, "path");
+  const { engine, commits } = historyLog(gitRoot(ctx.cwd), { rev, limit, paths });
+  const more = commits.length > limit;
+  const all = commits.slice(0, limit).map((c) => ({ sha: c.sha.slice(0, 7), subject: c.subject, when: ago(Date.parse(c.date)), author: c.author, date: c.date, refs: c.refs }));
+  const rows = filterRows(all, ctx.query);
+  const data: Row = { engine, count: `${plural(all.length, "commit")}${more ? ` (more available — use --limit ${limit * 2})` : ""}` };
+  if (rev) data.rev = rev;
+  if (paths.length) data.paths = paths.join(" ");
+  queryNote(data, ctx, rows.length, all.length, "commit");
+  putList(data, "commits", project(rows, LOG, ctx.fields), ctx.query ? "0 matching commits" : "0 commits");
+  const help = [run(ctx, "show <sha>"), run(ctx, "blame <file>")];
+  if (more) help.unshift(run(ctx, `log${rev ? ` ${rev}` : ""} --limit ${limit * 2}`));
+  return { data, help };
+}
+
+function rejectOptionLike(ctx: Ctx, rev: string | undefined, cmd: string): void {
+  if (rev?.startsWith("-")) throw new UsageError(`revision must not start with "-", got "${rev}"`, [run(ctx, `${cmd} --help`)], "INVALID_VALUE");
+}
+
+const BLAME: ListSchema = { name: "blame", defaults: ["lines", "sha", "author", "summary"], extras: ["date", "when"] };
+
+/** `blame <file> [-L a,b] [--rev <rev>]`: who last changed each line range, grouped by commit. */
+export function blameView(ctx: Ctx): Output {
+  maxPositionals(ctx.p, 1, "blame");
+  validateFields(ctx.fields, [BLAME], "blame");
+  const file = ctx.p.positionals[0];
+  if (!file) throw new UsageError("blame needs a <file> (repository-relative)", [run(ctx, "blame <file> -L 1,40")], "MISSING_ARGUMENT");
+  const range = str(ctx.p, "lines");
+  if (range !== undefined && !/^\d+(,(\+?\d+)?)?$/.test(range)) throw new UsageError(`-L must look like 10,20 or 10,+5, got "${range}"`, [run(ctx, `blame ${file} -L 1,40`)], "INVALID_VALUE");
+  const brev = str(ctx.p, "rev");
+  rejectOptionLike(ctx, brev, "blame");
+  const { engine, lines } = historyBlame(gitRoot(ctx.cwd), file, { range, rev: brev });
+  const groups: Row[] = [];
+  for (const l of lines) {
+    const last = groups[groups.length - 1];
+    if (last && last.full === l.sha && last.end === l.line - 1) {
+      last.end = l.line;
+      continue;
+    }
+    groups.push({ full: l.sha, start: l.line, end: l.line, sha: l.uncommitted ? "uncommitted" : l.sha.slice(0, 7), author: l.author, summary: l.summary, date: l.date, when: l.date ? ago(Date.parse(l.date)) : "" });
+  }
+  for (const g of groups) g.lines = g.start === g.end ? String(g.start) : `${g.start}-${g.end}`;
+  const rows = filterRows(groups, ctx.query);
+  const shas = new Set(lines.filter((l) => !l.uncommitted).map((l) => l.sha));
+  const uncommitted = lines.filter((l) => l.uncommitted).length;
+  const data: Row = { engine, file, count: `${plural(lines.length, "line")}; ${plural(shas.size, "commit")}; ${uncommitted} uncommitted` };
+  queryNote(data, ctx, rows.length, groups.length, "range");
+  const shown = ctx.full ? rows : rows.slice(0, LIMITS.blame);
+  putList(data, "blame", project(shown, BLAME, ctx.fields), ctx.query ? "0 matching ranges" : "0 lines");
+  if (shown.length < rows.length) data.blame_note = `(showing ${shown.length} of ${rows.length} ranges — use -L a,b or --full)`;
+  return { data, help: [run(ctx, "show <sha>"), run(ctx, `log --path ${file}`)] };
 }

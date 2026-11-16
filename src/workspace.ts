@@ -33,9 +33,17 @@ interface RawStack {
   assignedChanges?: RawChange[];
   branches?: RawBranch[];
 }
+interface RawWorktree {
+  cliId?: string;
+  name: string;
+  base?: { behind?: number; inWorkspace?: boolean };
+  uncommittedChanges?: RawChange[];
+  branches?: RawBranch[];
+}
 export interface RawStatus {
   uncommittedChanges?: RawChange[];
   stacks?: RawStack[];
+  worktrees?: RawWorktree[];
   mergeBase?: RawCommit;
   upstreamState?: { behind?: number; latestCommit?: RawCommit; lastFetched?: string };
 }
@@ -69,9 +77,19 @@ export interface Commit extends Row {
   message: string;
 }
 
+/** Linked Git worktree (GitButler 0.23+), listed beside the workspace. */
+export interface Worktree extends Row {
+  id: string;
+  name: string;
+  commits: number;
+  uncommitted: number;
+  behind: number;
+}
+
 export interface Workspace {
   cwd: string;
   root: string;
+  worktrees: Worktree[];
   uncommitted: Change[];
   branches: Branch[];
   commits: Commit[];
@@ -151,9 +169,17 @@ export function summarize(raw: RawStatus, cwd: string, root: string): Workspace 
     }
   }
   const conflicts = commits.filter((c) => c.conflicted).length + uncommitted.filter((c) => c.conflicted).length;
+  const worktrees: Worktree[] = (raw.worktrees ?? []).map((w) => ({
+    id: w.cliId ?? "",
+    name: w.name,
+    commits: (w.branches ?? []).reduce((n, b) => n + (b.commits ?? []).length, 0),
+    uncommitted: (w.uncommittedChanges ?? []).length,
+    behind: w.base?.behind ?? 0,
+  }));
   return {
     cwd,
     root,
+    worktrees,
     uncommitted,
     branches,
     commits,
@@ -179,6 +205,7 @@ export function aggregate(ws: Workspace): string {
     `${plural(ws.commits.length, "commit")}${ws.commits.length ? ` (${unpushed} on unpushed branches)` : ""}`,
     `${ws.uncommitted.length} uncommitted`,
     plural(ws.conflicts, "conflict"),
+    ...(ws.worktrees.length ? [plural(ws.worktrees.length, "worktree")] : []),
   ].join("; ");
 }
 
