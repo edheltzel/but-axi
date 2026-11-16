@@ -92,6 +92,7 @@ interface GritLog {
 
 /** Up to `limit + 1` commits so the caller can tell whether more exist. */
 export function historyLog(cwd: string, opts: { rev?: string; limit: number; paths?: string[] }): { engine: Engine; commits: LogCommit[] } {
+  assertRev(opts.rev);
   const bin = resolveGrit();
   const want = opts.limit + 1;
   const tail = opts.paths?.length ? ["--", ...opts.paths] : [];
@@ -125,8 +126,13 @@ interface GritBlame {
 
 const ZERO = /^0+$/;
 
+function assertRev(rev: string | undefined): void {
+  if (rev?.startsWith("-")) throw new AxiError(`revision must not start with "-", got "${rev}"`, "INVALID_VALUE");
+}
+
 /** Per-line blame of the working tree file (uncommitted lines marked), or of `rev` when given. */
 export function historyBlame(cwd: string, file: string, opts: { range?: string; rev?: string }): { engine: Engine; lines: BlameLine[] } {
+  assertRev(opts.rev);
   const bin = resolveGrit();
   const range = opts.range ? ["-L", opts.range] : [];
   if (bin) {

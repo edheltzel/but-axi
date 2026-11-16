@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { accessSync, constants, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { AxiError } from "./errors.js";
@@ -37,9 +37,19 @@ function shq(s: string): string {
 /** argv prefix that runs this but-axi: ["but-axi"] when PATH resolves to it, else [node, script]. */
 export function launcher(nodePath = process.execPath, script = process.argv[1] ?? "", pathEnv = process.env.PATH ?? ""): string[] {
   const self = real(script);
-  if (self && pathEnv.split(delimiter).some((dir) => dir && real(join(dir, BIN)) === self)) return [BIN];
+  const first = pathEnv.split(delimiter).filter(Boolean).map((dir) => join(dir, BIN)).find(isExecutable);
+  if (self && first && real(first) === self) return [BIN];
   const { node, js } = runtimePaths(nodePath, script, pathEnv);
   return [node, js];
+}
+
+function isExecutable(p: string): boolean {
+  try {
+    accessSync(p, constants.X_OK);
+    return statSync(p).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function real(p: string): string | undefined {

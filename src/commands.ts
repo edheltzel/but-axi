@@ -507,6 +507,7 @@ export function logView(ctx: Ctx): Output {
   const limit = limitRaw ? Number(limitRaw) : LIMITS.log;
   if (!Number.isInteger(limit) || limit < 1) throw new UsageError(`--limit must be a positive integer, got "${limitRaw}"`, [run(ctx, "log --limit 50")], "INVALID_VALUE");
   const rev = ctx.p.positionals[0];
+  rejectOptionLike(ctx, rev, "log");
   const paths = strs(ctx.p, "path");
   const { engine, commits } = historyLog(gitRoot(ctx.cwd), { rev, limit, paths });
   const more = commits.length > limit;
@@ -522,6 +523,10 @@ export function logView(ctx: Ctx): Output {
   return { data, help };
 }
 
+function rejectOptionLike(ctx: Ctx, rev: string | undefined, cmd: string): void {
+  if (rev?.startsWith("-")) throw new UsageError(`revision must not start with "-", got "${rev}"`, [run(ctx, `${cmd} --help`)], "INVALID_VALUE");
+}
+
 const BLAME: ListSchema = { name: "blame", defaults: ["lines", "sha", "author", "summary"], extras: ["date", "when"] };
 
 /** `blame <file> [-L a,b] [--rev <rev>]`: who last changed each line range, grouped by commit. */
@@ -532,7 +537,9 @@ export function blameView(ctx: Ctx): Output {
   if (!file) throw new UsageError("blame needs a <file> (repository-relative)", [run(ctx, "blame <file> -L 1,40")], "MISSING_ARGUMENT");
   const range = str(ctx.p, "lines");
   if (range !== undefined && !/^\d+(,(\+?\d+)?)?$/.test(range)) throw new UsageError(`-L must look like 10,20 or 10,+5, got "${range}"`, [run(ctx, `blame ${file} -L 1,40`)], "INVALID_VALUE");
-  const { engine, lines } = historyBlame(gitRoot(ctx.cwd), file, { range, rev: str(ctx.p, "rev") });
+  const brev = str(ctx.p, "rev");
+  rejectOptionLike(ctx, brev, "blame");
+  const { engine, lines } = historyBlame(gitRoot(ctx.cwd), file, { range, rev: brev });
   const groups: Row[] = [];
   for (const l of lines) {
     const last = groups[groups.length - 1];

@@ -76,7 +76,7 @@ describe("portable hook command (AXI §7)", () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "but-axi-bin-")));
     const script = join(root, "pkg", "but-axi.js");
     mkdirSync(join(root, "pkg"));
-    writeFileSync(script, "");
+    writeFileSync(script, "", { mode: 0o755 });
     const node = join(root, "Cellar", "node-26", "node");
     mkdirSync(join(root, "Cellar", "node-26"), { recursive: true });
     writeFileSync(node, "");
@@ -96,6 +96,14 @@ describe("portable hook command (AXI §7)", () => {
     const cmd = hookCommand("codex", node, script, bin);
     expect(cmd).toBe(`${node} ${script} hook session-start --agent codex # ${MARKER}`);
     expect(cmd).not.toContain("/opt/homebrew");
+  });
+  it("uses absolute paths when an earlier PATH dir has a different executable but-axi", () => {
+    const { root, script, node, bin } = setup();
+    const early = join(root, "early");
+    mkdirSync(early);
+    writeFileSync(join(early, "but-axi"), "#!/bin/sh\n", { mode: 0o755 });
+    symlinkSync(script, join(bin, "but-axi"));
+    expect(hookCommand("claude", node, script, `${early}:${bin}`)).toBe(`${node} ${script} hook session-start --agent claude # ${MARKER}`);
   });
   it("prefers a node on PATH that resolves to the running node", () => {
     const { script, node, bin } = setup();

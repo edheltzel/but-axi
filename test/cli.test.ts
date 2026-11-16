@@ -394,6 +394,15 @@ describe("history: log and blame (grit when installed, else git)", () => {
     expect(axi(["blame", "f", "-L", "x"]).out).toContain("code: INVALID_VALUE");
     expect(axi(["log", "--limit", "0"]).code).toBe(2);
     expect(axi(["log", "a", "b"]).code).toBe(2);
+    const victim = join(mkdtempSync(join(tmpdir(), "but-axi-rev-")), "keep.txt");
+    writeFileSync(victim, "keep\n");
+    for (const env of [{}, { BUT_AXI_NO_GRIT: "1" }]) {
+      const r = axi(["log", "--", `--output=${victim}`], { env });
+      expect(r.code).toBe(2);
+      expect(r.out).toContain("code: INVALID_VALUE");
+      expect(axi(["blame", "f", "--rev", "--output=x"], { env }).code).toBe(2);
+    }
+    expect(readFileSync(victim, "utf8")).toBe("keep\n");
   });
 
   it("never runs grit mutations: a fake grit only sees read-only verbs", () => {
