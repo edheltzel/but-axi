@@ -1,6 +1,6 @@
 {
   "name": "but-axi",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "AXI-compliant GitButler `but` CLI wrapper — TOON output, counts, truncation, help[] next steps, combined mutations, session hooks",
   "type": "module",
   "bin": {
